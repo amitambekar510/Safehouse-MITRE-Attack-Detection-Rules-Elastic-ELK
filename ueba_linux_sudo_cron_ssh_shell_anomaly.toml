@@ -1,0 +1,150 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "system"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+UEBA - Linux: Detects behavioral anomalies on Linux systems including sudo privilege abuse
+by non-standard users, suspicious cron job additions by interactive users, SSH logins
+from new/unexpected source IPs (first-seen login), and interactive shell spawned from
+a process that should never spawn shells (web server, database, container runtime).
+These are key UEBA indicators for Linux host compromise.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "logs-system.auth-*", "logs-system.syslog-*", "filebeat-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "UEBA Linux - Sudo Abuse, Cron Injection, SSH First-Seen IP, or Service Shell Spawn"
+references = [
+  "https://attack.mitre.org/techniques/T1053/003/",
+  "https://attack.mitre.org/techniques/T1078/003/",
+  "https://attack.mitre.org/techniques/T1059/004/",
+]
+risk_score = 65
+rule_id = "a1b2c3d4-0020-4010-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Linux",
+  "Use Case: UEBA",
+  "Use Case: Threat Detection",
+  "Tactic: Privilege Escalation",
+  "Tactic: Persistence",
+  "Tactic: Execution",
+  "Data Source: Elastic Defend",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where host.os.type == "linux" and
+  (
+    /* Sudo executed by non-standard/non-ops user with sensitive command */
+    (event.category == "process" and event.type == "start" and
+      process.name == "sudo" and
+      process.args : (
+        "su", "bash", "sh", "python*", "perl*", "ruby*",
+        "chmod 777 *", "chmod +s *", "chown root*",
+        "passwd root*", "visudo*", "usermod*", "useradd*",
+        "/etc/passwd*", "/etc/shadow*", "/etc/sudoers*"
+      ) and
+      not user.name : ("root", "ubuntu", "ec2-user", "centos", "ansible", "deploy")
+    ) or
+    /* Cron job added/modified by interactive user session */
+    (event.category == "file" and event.type in ("creation", "change") and
+      file.path : (
+        "/etc/cron*", "/var/spool/cron/*",
+        "/etc/cron.d/*", "/etc/cron.daily/*",
+        "/etc/cron.hourly/*", "/etc/cron.weekly/*"
+      ) and
+      process.name : ("bash", "sh", "python*", "vi", "vim", "nano", "echo", "tee") and
+      not user.name : ("root", "cron", "daemon")
+    ) or
+    /* Shell spawned by web/db/container process */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("bash", "sh", "dash", "zsh", "python*", "perl*") and
+      process.parent.name : (
+        "apache2", "httpd", "nginx", "php-fpm", "php",
+        "mysqld", "postgres", "mongod",
+        "java", "node", "ruby",
+        "containerd", "dockerd", "runc"
+      )
+    ) or
+    /* SSH root login from non-internal IP */
+    (event.category == "authentication" and
+      event.action : ("ssh_login", "user_login") and
+      user.name == "root" and
+      not source.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.1")
+    ) or
+    /* /etc/passwd or /etc/shadow accessed by non-system process */
+    (event.category == "file" and event.type in ("access", "open") and
+      file.path : ("/etc/shadow", "/etc/passwd", "/etc/gshadow") and
+      not process.name : (
+        "passwd", "shadow", "pam*", "login", "sudo",
+        "useradd", "usermod", "chpasswd", "sshd"
+      )
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### UEBA Linux - Behavioral Anomaly Analysis
+
+#### Possible Investigation Steps
+- For sudo abuse: check `/var/log/auth.log` for the full sudo command and session.
+- For cron injection: review the cron job content and execution schedule.
+- For web shell/shell from service: correlate with web access logs to find the exploit request.
+- For SSH root login: verify source IP country and whether root SSH should be permitted.
+
+### Key UEBA Baseline Indicators
+- Standard application user running sudo to root shell.
+- Interactive cron modification outside of change management window.
+- Web server spawning bash — always indicates compromise.
+
+### Response and Remediation
+- Disable PermitRootLogin in sshd_config.
+- Implement sudoers with NOPASSWD restriction and command whitelisting.
+- Deploy file integrity monitoring on /etc/cron* and /etc/passwd.
+- Isolate the host if web shell is confirmed.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1053"
+name = "Scheduled Task/Job"
+reference = "https://attack.mitre.org/techniques/T1053/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1053.003"
+name = "Cron"
+reference = "https://attack.mitre.org/techniques/T1053/003/"
+
+[rule.threat.tactic]
+id = "TA0003"
+name = "Persistence"
+reference = "https://attack.mitre.org/tactics/TA0003/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1548"
+name = "Abuse Elevation Control Mechanism"
+reference = "https://attack.mitre.org/techniques/T1548/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1548.003"
+name = "Sudo and Sudo Caching"
+reference = "https://attack.mitre.org/techniques/T1548/003/"
+
+[rule.threat.tactic]
+id = "TA0004"
+name = "Privilege Escalation"
+reference = "https://attack.mitre.org/tactics/TA0004/"

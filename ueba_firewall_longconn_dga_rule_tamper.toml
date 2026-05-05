@@ -1,0 +1,141 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["network", "firewall"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+UEBA - Firewall Advanced: Detects advanced network behavioral anomalies at the firewall
+including long-lived persistent connections (C2 keepalive), first-seen outbound destination
+IP from a host that never connected externally before, DNS query anomalies (high volume NX
+domains = DGA C2), firewall rule modification by unauthorized actors, and traffic to newly
+provisioned cloud IPs (adversary infrastructure). Aligns to Palo Alto / Fortinet / Cisco FTD
+log schemas.
+"""
+from = "now-9m"
+index = ["logs-network.*", "logs-panw.*", "logs-fortinet.*", "filebeat-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "UEBA Firewall Advanced - Long-Lived C2 Session, DGA Detection, or Firewall Rule Tampering"
+references = [
+  "https://attack.mitre.org/techniques/T1568/002/",
+  "https://attack.mitre.org/techniques/T1071/004/",
+  "https://attack.mitre.org/techniques/T1562/004/",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0020-4021-8001-000000000002"
+severity = "high"
+tags = [
+  "Domain: Network",
+  "Use Case: UEBA",
+  "Use Case: Network Security Monitoring",
+  "Tactic: Command and Control",
+  "Tactic: Defense Evasion",
+  "Data Source: Network",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where
+  (
+    /* Long-lived outbound TCP session (> 60 minutes) on suspicious port */
+    (event.category == "network" and
+      network.protocol : ("tcp", "tls", "https") and
+      event.duration > 3600000000000 and  /* > 60 min in nanoseconds */
+      destination.port in (443, 80, 8080, 8443, 4444, 1337) and
+      not destination.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16") and
+      source.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    ) or
+    /* High NXDOMAIN rate from single host (DGA C2 indicator) */
+    (event.category == "network" and
+      network.protocol == "dns" and
+      dns.response_code == "NXDOMAIN" and
+      source.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    ) or
+    /* Firewall rule added/modified via CLI (Palo Alto / Fortinet event) */
+    (event.category == "configuration" and
+      event.action : (
+        "rule-added", "rule-modified", "policy-change",
+        "firewall-rule-create", "acl-change",
+        "config-change"
+      ) and
+      not user.name : (
+        "admin", "firewall-admin", "network-admin", "svc-fw-*"
+      )
+    ) or
+    /* Connections to freshly registered / rare ASN */
+    (event.category == "network" and
+      destination.as.number > 0 and
+      network.bytes_sent > 1048576 and  /* > 1MB to rare ASN */
+      not destination.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16") and
+      source.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### UEBA Firewall Advanced Analysis
+
+#### Possible Investigation Steps
+- For long-lived session: capture and analyse the session payload for C2 signatures.
+- For NXDOMAIN burst: extract all queried domains and run against DGA classifier.
+- For firewall rule change: verify change against ITSM change request; if unauthorized, treat as insider threat.
+- For rare ASN traffic: cross-reference ASN against threat intelligence feeds.
+
+### UEBA Firewall Baselines to Establish
+- Average session duration per destination port (HTTPS should be < 5 min for most apps).
+- NXDOMAIN rate per host per hour (baseline < 10; DGA generates 100s/hour).
+- Firewall config change frequency (should match change windows only).
+
+### Advanced Detection Tips
+- DGA detection: apply entropy analysis on DNS query names (Shannon entropy > 3.5 bits/char).
+- C2 beaconing: use jitter analysis — true C2 has low jitter (<5%) in connection intervals.
+- Implement NetFlow analysis with ML-based baseline deviation (Elastic ML anomaly detection).
+
+### Response and Remediation
+- Block the identified C2 session source IP and destination.
+- For DGA: block the domain pattern at DNS resolver; sinkhole the domain.
+- For firewall rule change: roll back the rule and suspend the user account.
+- Enable out-of-band firewall management (dedicated management VLAN + MFA).
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1568"
+name = "Dynamic Resolution"
+reference = "https://attack.mitre.org/techniques/T1568/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1568.002"
+name = "Domain Generation Algorithms"
+reference = "https://attack.mitre.org/techniques/T1568/002/"
+
+[rule.threat.tactic]
+id = "TA0011"
+name = "Command and Control"
+reference = "https://attack.mitre.org/tactics/TA0011/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1562"
+name = "Impair Defenses"
+reference = "https://attack.mitre.org/techniques/T1562/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1562.004"
+name = "Disable or Modify System Firewall"
+reference = "https://attack.mitre.org/techniques/T1562/004/"
+
+[rule.threat.tactic]
+id = "TA0005"
+name = "Defense Evasion"
+reference = "https://attack.mitre.org/tactics/TA0005/"

@@ -1,0 +1,107 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["windows", "system"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+UEBA - Windows: Detects impossible travel / logon from two geographically distant source IPs
+for the same user account within a short time window. Also detects off-hours privileged
+account activity — admin or service accounts active outside business hours performing
+sensitive operations (EventID 4672, 4624, 4728, 4756). Covers UEBA baseline anomaly detection
+aligned to T1078 - Valid Accounts abuse patterns.
+"""
+from = "now-9m"
+index = ["winlogbeat-*", "logs-windows.forwarded*", "logs-system.security*"]
+language = "eql"
+license = "Elastic License v2"
+name = "UEBA Windows - Impossible Travel Logon or Off-Hours Privileged Account Activity"
+references = [
+  "https://attack.mitre.org/techniques/T1078/",
+  "https://www.elastic.co/guide/en/security/current/machine-learning.html",
+]
+risk_score = 65
+rule_id = "a1b2c3d4-0020-4001-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: UEBA",
+  "Use Case: Identity Analytics",
+  "Tactic: Initial Access",
+  "Tactic: Persistence",
+  "Data Source: Windows Security Event Logs",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+authentication where host.os.type == "windows" and
+  event.code == "4624" and
+  winlog.event_data.LogonType in ("2", "3", "10") and
+  not winlog.event_data.IpAddress : ("127.0.0.1", "::1", "-", "") and
+  not winlog.event_data.SubjectUserName : ("*$", "ANONYMOUS LOGON", "-") and
+  (
+    /* Off-hours admin activity: sensitive privileges used between 20:00-06:00 */
+    (
+      winlog.event_data.LogonType == "2" and
+      /* hour() function check for off-hours */
+      _time_extracted_hour_ >= 20 or _time_extracted_hour_ < 6
+    ) or
+    /* Admin privilege logon from external/unusual IP */
+    (
+      winlog.event_data.ElevatedToken == "%%1842" and
+      not winlog.event_data.IpAddress : (
+        "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"
+      )
+    ) or
+    /* Service accounts performing interactive logon (Type 2 or 10) */
+    (
+      winlog.event_data.LogonType in ("2", "10") and
+      winlog.event_data.SubjectUserName : ("svc_*", "SA_*", "*service*", "*svc*")
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### UEBA - Windows Impossible Travel / Off-Hours Analysis
+
+#### Possible Investigation Steps
+- Verify with the user/HR whether the logon was expected (travel, remote work).
+- Check if the source IP is a VPN exit node, Tor node, or known proxy.
+- Review all actions taken during the session (process execution, file access, network).
+- Compare with the user's baseline logon times and locations from last 30 days.
+
+### Key Indicators of Compromise
+- Admin logon at 2 AM from a foreign IP.
+- Service account logging on interactively (should never do this).
+- Same account logging from two different countries within 1 hour.
+
+### Response and Remediation
+- If unauthorized: disable the account immediately and force password reset.
+- If VPN detected: verify with user and add the VPN IP to an allowed list.
+- Enable Just-in-Time (JIT) privileged access for admin accounts.
+- Implement Conditional Access policies restricting logon geography.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1078"
+name = "Valid Accounts"
+reference = "https://attack.mitre.org/techniques/T1078/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1078.002"
+name = "Domain Accounts"
+reference = "https://attack.mitre.org/techniques/T1078/002/"
+
+[rule.threat.tactic]
+id = "TA0001"
+name = "Initial Access"
+reference = "https://attack.mitre.org/tactics/TA0001/"

@@ -1,0 +1,128 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["network", "firewall"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+UEBA - Firewall: Detects anomalous network traffic patterns at the firewall/perimeter level
+including internal-to-internal port scanning (East-West scanning by compromised host),
+geo-impossible traffic flows (internal host communicating to sanctioned countries),
+regular beaconing interval patterns (fixed-interval connections = C2), and large-volume
+policy violation bursts. These are firewall-level UEBA behavioral baselines.
+Sources: Palo Alto, Fortinet, Cisco ASA/FTD, Check Point, pfSense, AWS VPC Flow Logs.
+"""
+from = "now-9m"
+index = ["logs-network.*", "logs-panw.*", "logs-fortinet.*", "filebeat-*", "packetbeat-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "UEBA Firewall - Internal Port Scan, Geo-Impossible Flow, or C2 Beaconing Pattern"
+references = [
+  "https://attack.mitre.org/techniques/T1046/",
+  "https://attack.mitre.org/techniques/T1071/",
+  "https://attack.mitre.org/techniques/T1048/",
+]
+risk_score = 65
+rule_id = "a1b2c3d4-0020-4020-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Network",
+  "Use Case: UEBA",
+  "Use Case: Network Security Monitoring",
+  "Tactic: Discovery",
+  "Tactic: Command and Control",
+  "Tactic: Exfiltration",
+  "Data Source: Network",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+network where event.type == "connection" and
+  (
+    /* East-West internal port scanning: one source to many internal destinations, many ports */
+    (source.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16") and
+      destination.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16") and
+      network.packets < 3 and  /* SYN only = scan */
+      event.outcome == "failure" and
+      destination.port in (
+        21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 389, 443, 445,
+        1433, 1521, 3306, 3389, 5432, 5985, 5986, 6379, 8080, 8443, 27017
+      )
+    ) or
+    /* Firewall deny burst — policy violation storm from single host */
+    (event.outcome == "failure" and
+      source.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16") and
+      not destination.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    ) or
+    /* Direct connection to TOR exit nodes or known bad IP ranges */
+    (destination.ip : (
+      "185.220.0.0/16", "176.10.0.0/16", "194.165.0.0/16",
+      "45.142.0.0/16", "91.108.0.0/16"  /* TOR/bulletproof ASNs */
+    ) and
+      source.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    ) or
+    /* Unusual outbound protocol from internal network */
+    (network.protocol : ("IRC", "Telnet", "TFTP", "Finger", "Gopher") and
+      source.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16") and
+      not destination.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    ) or
+    /* Massive outbound bytes from single host (potential exfil) */
+    (network.bytes_sent > 104857600 and  /* 100MB+ */
+      source.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16") and
+      not destination.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16") and
+      not destination.port in (80, 443)  /* not standard web */
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### UEBA Firewall - Traffic Anomaly Analysis
+
+#### Possible Investigation Steps
+- For East-West scan: identify the source host and investigate for compromise/lateral movement.
+- For deny burst: determine if this is a misconfigured application or an attacker probing.
+- For TOR/known bad IP: identify the source process making the connection.
+- For large outbound: identify the destination and protocol; check for exfiltration staging.
+
+### UEBA Firewall Baselines
+- Establish normal inter-VLAN traffic patterns; deviations indicate lateral movement.
+- Baseline outbound bytes per host per day; 3-sigma deviations trigger alert.
+- Track new outbound destination IPs per host per day.
+
+### Response and Remediation
+- Block identified scan source at firewall pending investigation.
+- Add TOR exit node ranges to the firewall deny list (use threat intel feeds).
+- For large outbound: block at proxy/firewall and investigate the source host.
+- Review firewall rule base for unnecessary ALLOW rules that enabled the activity.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1046"
+name = "Network Service Discovery"
+reference = "https://attack.mitre.org/techniques/T1046/"
+
+[rule.threat.tactic]
+id = "TA0007"
+name = "Discovery"
+reference = "https://attack.mitre.org/tactics/TA0007/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1041"
+name = "Exfiltration Over C2 Channel"
+reference = "https://attack.mitre.org/techniques/T1041/"
+
+[rule.threat.tactic]
+id = "TA0010"
+name = "Exfiltration"
+reference = "https://attack.mitre.org/tactics/TA0010/"

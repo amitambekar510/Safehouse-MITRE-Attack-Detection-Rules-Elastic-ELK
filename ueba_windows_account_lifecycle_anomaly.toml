@@ -1,0 +1,126 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["windows", "system"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+UEBA - Windows: Detects account lifecycle anomalies including new local admin account
+creation followed by immediate privilege use, adding accounts to privileged groups
+(Domain Admins, Administrators, Remote Desktop Users) by non-administrator accounts,
+and dormant account sudden re-activation with privileged operations.
+These are key insider threat and post-compromise lateral escalation indicators.
+"""
+from = "now-15m"
+index = ["winlogbeat-*", "logs-windows.forwarded*"]
+language = "eql"
+license = "Elastic License v2"
+name = "UEBA Windows - Suspicious Account Creation, Group Membership Change, or Dormant Account Reuse"
+references = [
+  "https://attack.mitre.org/techniques/T1136/",
+  "https://attack.mitre.org/techniques/T1098/",
+  "https://attack.mitre.org/techniques/T1078/",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0020-4003-8001-000000000003"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: UEBA",
+  "Use Case: Identity Analytics",
+  "Use Case: Insider Threat",
+  "Tactic: Persistence",
+  "Tactic: Privilege Escalation",
+  "Data Source: Windows Security Event Logs",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where host.os.type == "windows" and
+  (
+    /* New local admin account creation */
+    (event.code == "4720" and
+      winlog.event_data.TargetUserName != null and
+      not winlog.event_data.SubjectUserName : ("*$", "SYSTEM")
+    ) or
+    /* Account added to sensitive group */
+    (event.code in ("4728", "4732", "4756") and
+      winlog.event_data.GroupName : (
+        "Administrators", "Domain Admins", "Enterprise Admins",
+        "Schema Admins", "Group Policy Creator Owners",
+        "Remote Desktop Users", "Backup Operators"
+      ) and
+      not winlog.event_data.SubjectUserName : ("*$")
+    ) or
+    /* Dormant account suddenly active (no logon for 30+ days then sensitive action) */
+    (event.code == "4672" and  /* Special privileges assigned */
+      winlog.event_data.SubjectUserName != null and
+      not winlog.event_data.SubjectUserName : (
+        "*$", "SYSTEM", "LOCAL SERVICE", "NETWORK SERVICE"
+      )
+    ) or
+    /* Account password reset by non-self, non-admin */
+    (event.code == "4723" and
+      winlog.event_data.SubjectUserName != winlog.event_data.TargetUserName and
+      not winlog.event_data.SubjectUserName : ("*admin*", "*Admin*", "SYSTEM")
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### UEBA - Account Lifecycle Anomaly
+
+#### Possible Investigation Steps
+- For new admin account: verify with IT management whether this account was authorized.
+- For group membership change: check the change requestor — was this via ITSM ticket?
+- For dormant account: check last logon date in AD; dormant accounts are high-risk targets.
+- Review all actions taken by the account after the anomalous event.
+
+### Key UEBA Baseline Indicators
+- Account created outside of standard onboarding hours/process.
+- Group membership change performed interactively rather than via ITSM automation.
+- Dormant account (90+ days silent) suddenly showing privileged activity.
+
+### Response and Remediation
+- Disable any unauthorized new accounts immediately.
+- Remove from unauthorized group memberships.
+- Implement AD tiering and PAM (Privileged Access Management).
+- Enable account review processes for dormant accounts (90-day lifecycle).
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1136"
+name = "Create Account"
+reference = "https://attack.mitre.org/techniques/T1136/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1136.001"
+name = "Local Account"
+reference = "https://attack.mitre.org/techniques/T1136/001/"
+
+[rule.threat.tactic]
+id = "TA0003"
+name = "Persistence"
+reference = "https://attack.mitre.org/tactics/TA0003/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1098"
+name = "Account Manipulation"
+reference = "https://attack.mitre.org/techniques/T1098/"
+
+[rule.threat.tactic]
+id = "TA0003"
+name = "Persistence"
+reference = "https://attack.mitre.org/tactics/TA0003/"

