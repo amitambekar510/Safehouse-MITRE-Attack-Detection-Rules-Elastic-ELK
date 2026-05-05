@@ -259,6 +259,7 @@ The `ueba/` folder contains **pure behavioral baseline rules** that go beyond si
 
 **Amit Ambekar**
 *SOC Team Lead | amitambekar510 | Safehouse*
+
 **Linkedin:- https://www.linkedin.com/in/amitmilindambekar/**
 ---
 
