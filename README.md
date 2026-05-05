@@ -137,39 +137,6 @@ Elastic Security → Rules → Detection Rules → Import Rules → Upload .toml
 
 Select all `.toml` files from the desired category folder and import.
 
-### Method 2 — Elastic Security API
-
-```bash
-# Import a single rule
-curl -X POST "https://<kibana-host>:5601/api/detection_engine/rules" \
-  -H "kbn-xsrf: true" \
-  -H "Content-Type: application/json" \
-  -u elastic:<password> \
-  --data-binary @credential_access_lsass_memory_dump.toml
-
-# Bulk import all rules (convert to NDJSON first)
-python3 scripts/bulk_import.py --host https://kibana:5601 --user elastic --pass <password>
-```
-
-### Method 3 — detection-rules CLI
-
-```bash
-# Using Elastic's official detection-rules tool
-pip install detection-rules
-detection-rules load-rule elastic/credential_access/credential_access_lsass_memory_dump.toml
-```
-
-### Method 4 — Elastic Security GitHub Actions (CI/CD)
-
-```yaml
-- name: Import Detection Rules
-  uses: elastic/detection-rules@main
-  with:
-    kibana_url: ${{ secrets.KIBANA_URL }}
-    api_key: ${{ secrets.ELASTIC_API_KEY }}
-    rules_path: ./elastic-rules/
-```
-
 ---
 
 ## 📐 Rule Schema Reference
@@ -178,7 +145,7 @@ Each `.toml` rule follows the standard Elastic detection rule schema:
 
 ```toml
 [metadata]
-creation_date = "2025/01/01"
+creation_date = "2026/04/01"
 updated_date  = "2026/05/04"
 maturity      = "production"
 
@@ -265,52 +232,6 @@ The `ueba/` folder contains **pure behavioral baseline rules** that go beyond si
 
 ---
 
-## 🔧 Advanced Suggestions & Roadmap
-
-### Integrate with Elastic ML (Recommended)
-Pair these EQL rules with Elastic's built-in ML anomaly detection jobs:
-
-```
-Security → Machine Learning → Security Jobs:
-- rare_process_by_host
-- unusual_network_activity_to_external_ip
-- rare_user_agent_for_a_user
-- high_count_network_connections_from_process
-```
-
-### Threat Intelligence Enrichment
-Enable `threat.indicator.*` enrichment with:
-- **MISP** (via `misp` Elastic integration)
-- **OpenCTI** (via filebeat TAXII)
-- **Elastic Threat Intelligence** (built-in feeds)
-
-### Recommended Elastic Security ASR Rules (Attack Surface Reduction)
-Enable these alongside detection rules for prevention:
-```
-- Enable ASR rules via Microsoft Defender (for Windows endpoints)
-- Enable Elastic Defend malware prevention policy
-- Enable shellcode injection protection
-- Enable memory threat prevention
-```
-
-### CI/CD Pipeline Integration
-```yaml
-# .github/workflows/validate-rules.yml
-name: Validate Detection Rules
-on: [push, pull_request]
-jobs:
-  validate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install detection-rules
-        run: pip install detection-rules
-      - name: Validate all TOML rules
-        run: detection-rules validate-all
-```
-
----
-
 ## 📊 Severity & Risk Score Guide
 
 | Severity | Risk Score | Typical Use Case |
@@ -319,29 +240,6 @@ jobs:
 | 🟠 High | 70–89 | UAC bypass, credential theft, C2 communication, webshell |
 | 🟡 Medium | 40–69 | Suspicious recon, BITS abuse, off-hours access |
 | 🟢 Low | 1–39 | Informational, policy violations, baseline deviations |
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please follow these guidelines:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b rule/t1234-new-technique`)
-3. Follow the existing `.toml` schema
-4. Include triage notes, false positive analysis, and response steps
-5. Ensure MITRE ATT&CK mapping is accurate
-6. Submit a Pull Request with a description of what the rule detects
-
-### Rule Naming Convention
-```
-{tactic}_{description_snake_case}.toml
-
-Examples:
-  credential_access_lsass_memory_dump.toml
-  ueba_linux_reverse_shell_suid_outbound_staging.toml
-  lateral_movement_rdp_hijacking_or_enable.toml
-```
 
 ---
 
@@ -360,14 +258,8 @@ Examples:
 ## 👤 Author
 
 **Amit Ambekar**
-*Security Researcher | Safehouse*
-
-- Threat Detection Engineering
-- MITRE ATT&CK Coverage Analysis
-- Elastic SIEM / EQL Rule Development
-- UEBA Behavioral Analytics
-- Incident Response & Threat Hunting
-
+*SOC Team Lead | amitambekar510 | Safehouse*
+**Linkedin:- https://www.linkedin.com/in/amitmilindambekar/**
 ---
 
 ## ⚖️ License
