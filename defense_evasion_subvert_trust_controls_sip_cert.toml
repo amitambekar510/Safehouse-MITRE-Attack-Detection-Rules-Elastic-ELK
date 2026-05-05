@@ -1,0 +1,119 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects attempts to subvert Windows trust controls including SIP (Subject Interface Package)
+hijacking, code signing certificate abuse, WDAC/AppLocker bypass via trusted signed binaries,
+and Authenticode bypass techniques. Adversaries manipulate the trust chain to run
+unsigned or malicious code as if it were trusted.
+Covers T1553 - Subvert Trust Controls and sub-techniques.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Subvert Trust Controls - SIP Hijack, Code Signing Bypass, or WDAC Evasion"
+references = [
+  "https://attack.mitre.org/techniques/T1553/",
+  "https://attack.mitre.org/techniques/T1553.002/",
+  "https://attack.mitre.org/techniques/T1553.006/",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0006-4006-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Defense Evasion",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where host.os.type == "windows" and
+  (
+    /* SIP DLL hijacking via registry modification */
+    (event.category == "registry" and event.type in ("creation", "change") and
+      registry.path : (
+        "HKLM\\SOFTWARE\\Microsoft\\Cryptography\\OID\\EncodingType*\\CryptSIPDll*",
+        "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Cryptography\\OID\\*\\CryptSIPDll*"
+      ) and
+      not registry.data.strings : (
+        "C:\\Windows\\System32\\*", "C:\\Windows\\SysWOW64\\*"
+      )
+    ) or
+    /* Root certificate installation via certutil or certmgr */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("certutil.exe", "certmgr.exe") and
+      process.args : ("-addstore", "-importpfx", "Root", "TrustedPublisher") and
+      not process.parent.name : ("msiexec.exe", "TrustedInstaller.exe")
+    ) or
+    /* Mark of the Web (MOTW) removal to bypass SmartScreen */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("powershell.exe", "pwsh.exe") and
+      process.args : (
+        "*Unblock-File*", "*Remove-Item*Zone.Identifier*",
+        "*AlternateDataStream*Zone*"
+      )
+    ) or
+    /* Catalog file manipulation */
+    (event.category == "file" and event.type in ("creation", "change") and
+      file.extension : "cat" and
+      file.path : ("?:\\Windows\\System32\\catroot\\*") and
+      not process.name : ("TrustedInstaller.exe", "wusa.exe", "msiexec.exe", "svchost.exe")
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Trust Control Subversion
+
+#### Possible Investigation Steps
+- For SIP hijack: compare the registered DLL path to known good values.
+- For root cert install: review the certificate being added and its issuer.
+- For MOTW removal: identify which file had its Zone.Identifier ADS stripped.
+- Check what was executed after the trust control was bypassed.
+
+### False Positive Analysis
+- Enterprise CA certificate deployment via Group Policy.
+- Software installers adding intermediate certificates.
+
+### Response and Remediation
+- Restore original SIP registry values.
+- Remove unauthorized root certificates.
+- Re-apply MOTW to files downloaded from the internet.
+- Enable Windows Defender SmartScreen and WDAC policies.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1553"
+name = "Subvert Trust Controls"
+reference = "https://attack.mitre.org/techniques/T1553/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1553.002"
+name = "Code Signing"
+reference = "https://attack.mitre.org/techniques/T1553/002/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1553.006"
+name = "Code Signing Policy Modification"
+reference = "https://attack.mitre.org/techniques/T1553/006/"
+
+[rule.threat.tactic]
+id = "TA0005"
+name = "Defense Evasion"
+reference = "https://attack.mitre.org/tactics/TA0005/"

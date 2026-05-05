@@ -1,0 +1,135 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects automated collection of data including access to audio/video devices by unexpected
+processes, recursive archive creation across multiple directories, mass file access from
+network shares, and automated data harvesting scripts targeting sensitive file extensions.
+Covers T1119, T1123, T1125, T1039, T1560.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Collection - Automated Harvest, AV Capture, or Mass Network Share Access"
+references = [
+  "https://attack.mitre.org/techniques/T1119/",
+  "https://attack.mitre.org/techniques/T1123/",
+  "https://attack.mitre.org/techniques/T1039/",
+  "https://attack.mitre.org/techniques/T1560/",
+]
+risk_score = 65
+rule_id = "a1b2c3d4-0011-4002-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Collection",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where host.os.type == "windows" and
+  (
+    /* Audio capture via PowerShell or script */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("powershell.exe", "pwsh.exe") and
+      process.args : (
+        "*SoundRecorder*", "*AudioRecord*", "*waveIn*",
+        "*NAudio*", "*MediaCapture*", "*AudioClient*"
+      )
+    ) or
+    /* Webcam / screen capture via unexpected process */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("powershell.exe", "pwsh.exe", "cmd.exe") and
+      process.args : (
+        "*VideoCapture*", "*MediaFoundation*", "*DirectShow*",
+        "*OpenCV*", "*AForge*", "*ffmpeg*"
+      )
+    ) or
+    /* Mass file collection from network shares */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("robocopy.exe", "xcopy.exe", "rsync.exe") and
+      process.args : ("\\\\*\\*", "/s", "/e", "/mir") and
+      not process.parent.name : ("svchost.exe", "services.exe", "backup*")
+    ) or
+    /* Archive containing sensitive extension patterns — mass staging */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("7z.exe", "7za.exe", "WinRAR.exe", "rar.exe") and
+      process.args : (
+        "*-r*", "-mx*",
+        "*.docx", "*.xlsx", "*.pdf", "*.pst", "*.ost",
+        "*.kdbx", "*.pfx", "*.pem", "*.sql", "*.bak"
+      )
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Automated Collection
+
+#### Possible Investigation Steps
+- For AV capture: identify which device was accessed and review resulting media files.
+- For network share mass copy: identify source and destination paths and the data scope.
+- For archive creation: review which files were archived and where the archive was sent.
+- Correlate with exfiltration events — was the collected data transferred out?
+
+### False Positive Analysis
+- Backup software using robocopy/xcopy for scheduled backups.
+- Legitimate video conferencing apps accessing webcam.
+
+### Response and Remediation
+- Identify and delete staged collections.
+- Block outbound data transfers if exfiltration is detected.
+- Audit access rights to network shares.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1119"
+name = "Automated Collection"
+reference = "https://attack.mitre.org/techniques/T1119/"
+
+[rule.threat.tactic]
+id = "TA0009"
+name = "Collection"
+reference = "https://attack.mitre.org/tactics/TA0009/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1560"
+name = "Archive Collected Data"
+reference = "https://attack.mitre.org/techniques/T1560/"
+
+[rule.threat.tactic]
+id = "TA0009"
+name = "Collection"
+reference = "https://attack.mitre.org/tactics/TA0009/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1039"
+name = "Data from Network Shared Drive"
+reference = "https://attack.mitre.org/techniques/T1039/"
+
+[rule.threat.tactic]
+id = "TA0009"
+name = "Collection"
+reference = "https://attack.mitre.org/tactics/TA0009/"

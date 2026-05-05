@@ -1,0 +1,103 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects suspicious scheduled task creation or modification that adversaries use for execution
+and persistence. Identifies schtasks.exe with suspicious arguments, unusual task authors,
+tasks pointing to temp/appdata paths, or tasks created by non-standard processes.
+Covers T1053.005 - Scheduled Task/Job: Scheduled Task.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Suspicious Scheduled Task Creation for Persistence or Execution"
+references = [
+  "https://attack.mitre.org/techniques/T1053/",
+  "https://attack.mitre.org/techniques/T1053/005/",
+]
+risk_score = 65
+rule_id = "a1b2c3d4-0003-4004-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Execution",
+  "Tactic: Persistence",
+  "Tactic: Privilege Escalation",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+process where host.os.type == "windows" and event.type == "start" and
+  process.name : "schtasks.exe" and process.args : ("/create", "/Change") and
+  (
+    process.args : (
+      "*\\AppData\\*", "*\\Temp\\*", "*\\ProgramData\\*",
+      "*powershell*", "*pwsh*", "*cmd.exe*", "*mshta*",
+      "*wscript*", "*cscript*", "*regsvr32*", "*rundll32*",
+      "*certutil*", "*bitsadmin*", "*msiexec*",
+      "*http://*", "*https://*"
+    ) or
+    process.parent.name : (
+      "powershell.exe", "pwsh.exe", "cmd.exe",
+      "wscript.exe", "cscript.exe", "mshta.exe"
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Suspicious Scheduled Task Creation
+
+#### Possible Investigation Steps
+- Identify the scheduled task name, trigger, action, and the account used to create it.
+- Review the executable or script the task runs — check its path, hash, and signature.
+- Determine who/what process created the task (parent chain analysis).
+- Check the task's run frequency and whether it has already executed.
+
+### False Positive Analysis
+- Software updaters (Chrome, Adobe, Windows Update agents).
+- IT management tools creating tasks for deployment.
+
+### Response and Remediation
+- Delete the malicious scheduled task using `schtasks /delete`.
+- Remove any payloads referenced in the task action.
+- Enable Windows Task Scheduler auditing (Event IDs 4698, 4702).
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1053"
+name = "Scheduled Task/Job"
+reference = "https://attack.mitre.org/techniques/T1053/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1053.005"
+name = "Scheduled Task"
+reference = "https://attack.mitre.org/techniques/T1053/005/"
+
+[rule.threat.tactic]
+id = "TA0002"
+name = "Execution"
+reference = "https://attack.mitre.org/tactics/TA0002/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[rule.threat.tactic]
+id = "TA0003"
+name = "Persistence"
+reference = "https://attack.mitre.org/tactics/TA0003/"

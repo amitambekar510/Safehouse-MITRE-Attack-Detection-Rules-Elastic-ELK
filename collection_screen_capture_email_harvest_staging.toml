@@ -1,0 +1,133 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects data collection activity including screen capture via API abuse, keylogging via
+SetWindowsHookEx, email harvesting from Outlook PST files, clipboard data capture,
+and data staging in compressed archives before exfiltration.
+Covers T1113, T1056, T1114, T1115, T1074.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Data Collection - Screen Capture, Keylogging, or Email Harvesting"
+references = [
+  "https://attack.mitre.org/techniques/T1113/",
+  "https://attack.mitre.org/techniques/T1056/",
+  "https://attack.mitre.org/techniques/T1114/",
+  "https://attack.mitre.org/techniques/T1074/",
+]
+risk_score = 65
+rule_id = "a1b2c3d4-0011-4001-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Collection",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where host.os.type == "windows" and
+  (
+    /* Accessing Outlook PST/OST files by non-Outlook processes */
+    (event.category == "file" and event.type in ("access", "open") and
+      file.extension : ("pst", "ost") and
+      not process.name : ("OUTLOOK.EXE", "SearchIndexer.exe", "SearchProtocolHost.exe",
+                          "MicrosoftEdge.exe", "BackupAgent.exe")
+    ) or
+    /* Data staging - creating zip/7z archives in temp locations */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("7z.exe", "7za.exe", "WinRAR.exe", "rar.exe", "zip.exe") and
+      process.args : (
+        "*\\AppData\\*", "*\\Temp\\*", "*\\ProgramData\\*",
+        "*\\Desktop\\*Documents*", "*\\Users\\Public\\*"
+      ) and
+      process.parent.name : ("cmd.exe", "powershell.exe", "pwsh.exe")
+    ) or
+    /* Screen capture PowerShell one-liner */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("powershell.exe", "pwsh.exe") and
+      process.args : (
+        "*CopyFromScreen*", "*Graphics.CopyFromScreen*",
+        "*GetDesktopWindow*", "*BitBlt*",
+        "*System.Drawing*"
+      )
+    ) or
+    /* Clipboard access by suspicious process */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("powershell.exe", "pwsh.exe", "cmd.exe") and
+      process.args : ("*Get-Clipboard*", "*clip.exe*", "*OpenClipboard*")
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Data Collection
+
+#### Possible Investigation Steps
+- For PST access: identify what data was staged and whether it was subsequently transferred.
+- For archives: check the archive destination path and look for exfiltration network events.
+- For screen capture: identify the frequency and whether screenshots were transferred out.
+- Correlate collection events with network exfiltration indicators.
+
+### False Positive Analysis
+- Backup software accessing PST files.
+- Legitimate file archiving for backup or migration purposes.
+
+### Response and Remediation
+- Identify and delete staged data archives.
+- Block outbound data transfer if exfiltration is detected.
+- Review Data Loss Prevention (DLP) logs for the affected user.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1113"
+name = "Screen Capture"
+reference = "https://attack.mitre.org/techniques/T1113/"
+
+[rule.threat.tactic]
+id = "TA0009"
+name = "Collection"
+reference = "https://attack.mitre.org/tactics/TA0009/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1114"
+name = "Email Collection"
+reference = "https://attack.mitre.org/techniques/T1114/"
+
+[rule.threat.tactic]
+id = "TA0009"
+name = "Collection"
+reference = "https://attack.mitre.org/tactics/TA0009/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1074"
+name = "Data Staged"
+reference = "https://attack.mitre.org/techniques/T1074/"
+
+[rule.threat.tactic]
+id = "TA0009"
+name = "Collection"
+reference = "https://attack.mitre.org/tactics/TA0009/"

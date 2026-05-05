@@ -1,0 +1,86 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects downloads of capability-staging artifacts from code hosting or file-sharing platforms
+commonly abused by adversaries, such as raw GitHub content, Pastebin, Hastebin, Discord CDN,
+or Telegram CDN. Covers T1608 - Stage Capabilities and T1588 - Obtain Capabilities.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "logs-network.*", "packetbeat-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Resource Development - Capability Download from Staging Platform"
+references = [
+  "https://attack.mitre.org/techniques/T1608/",
+  "https://attack.mitre.org/techniques/T1588/",
+]
+risk_score = 55
+rule_id = "a1b2c3d4-0001-4002-8001-000000000002"
+severity = "medium"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "OS: Linux",
+  "Use Case: Threat Detection",
+  "Tactic: Resource Development",
+  "Data Source: Elastic Defend",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+network where host.os.type == "windows" and event.type == "connection" and
+  process.name : ("powershell.exe", "pwsh.exe", "cmd.exe", "mshta.exe",
+                  "wscript.exe", "cscript.exe", "certutil.exe", "bitsadmin.exe",
+                  "curl.exe", "wget.exe") and
+  destination.domain : (
+    "raw.githubusercontent.com", "pastebin.com", "paste.ee",
+    "hastebin.com", "cdn.discordapp.com", "t.me",
+    "transfer.sh", "file.io", "anonfiles.com",
+    "cdn.pbrd.co", "ghostbin.com"
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Capability Staging Downloads
+
+#### Possible Investigation Steps
+- Retrieve the URL path to identify the downloaded content.
+- Analyse the downloaded payload (hash, file type, strings).
+- Determine if any subsequent execution of the payload occurred.
+
+### False Positive Analysis
+- Developers pulling scripts from GitHub for legitimate automation.
+- DevOps CI/CD pipelines downloading configuration from GitHub raw.
+
+### Response and Remediation
+- Block the specific URL at the proxy/web gateway.
+- Quarantine any downloaded files for sandbox analysis.
+- Investigate whether further execution or lateral movement occurred.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1608"
+name = "Stage Capabilities"
+reference = "https://attack.mitre.org/techniques/T1608/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1608.001"
+name = "Upload Malware"
+reference = "https://attack.mitre.org/techniques/T1608/001/"
+
+[rule.threat.tactic]
+id = "TA0042"
+name = "Resource Development"
+reference = "https://attack.mitre.org/tactics/TA0042/"

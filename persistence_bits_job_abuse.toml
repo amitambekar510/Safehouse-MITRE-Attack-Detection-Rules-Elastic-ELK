@@ -1,0 +1,109 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects abuse of Background Intelligent Transfer Service (BITS) for persistence or
+payload delivery. Adversaries use BITSAdmin or PowerShell BITS cmdlets to create
+long-running BITS jobs that download and execute malicious payloads, survive reboots,
+and evade detection since BITS traffic blends with Windows Update.
+Covers T1197 - BITS Jobs.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Persistence via BITS Job - Suspicious BITSAdmin or BITS PowerShell Usage"
+references = [
+  "https://attack.mitre.org/techniques/T1197/",
+  "https://docs.microsoft.com/en-us/windows/win32/bits/about-bits",
+]
+risk_score = 65
+rule_id = "a1b2c3d4-0004-4005-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Persistence",
+  "Tactic: Defense Evasion",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where host.os.type == "windows" and
+  (
+    /* BITSAdmin creating transfer job with remote URL */
+    (event.category == "process" and event.type == "start" and
+      process.name : "bitsadmin.exe" and
+      process.args : ("/transfer", "/create", "/addfile", "/SetNotifyCmdLine") and
+      (process.args : ("http*", "ftp*", "\\\\*") or
+       process.args : ("*.exe", "*.ps1", "*.vbs", "*.js", "*.dll", "*.bat"))
+    ) or
+    /* PowerShell BITS cmdlets for suspicious download */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("powershell.exe", "pwsh.exe") and
+      process.args : (
+        "*Start-BitsTransfer*", "*New-BitsTransfer*",
+        "*Add-BitsFile*", "*Complete-BitsTransfer*"
+      ) and
+      process.args : ("http*", "ftp*")
+    ) or
+    /* BITS job setting notification command (persistence mechanism) */
+    (event.category == "process" and event.type == "start" and
+      process.name : "bitsadmin.exe" and
+      process.args : ("/SetNotifyCmdLine", "/SetMinRetryDelay", "/Resume") and
+      not process.parent.name : ("svchost.exe", "services.exe")
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating BITS Job Abuse
+
+#### Possible Investigation Steps
+- List active BITS jobs: `bitsadmin /list /allusers /verbose`
+- Identify what URL is being downloaded and to which destination path.
+- Review the notification command line — this is often the execution payload.
+- Check BITS event log: Microsoft-Windows-Bits-Client/Operational.
+
+### False Positive Analysis
+- Windows Update and SCCM use BITS extensively for patch delivery.
+- Application auto-updaters use BITS (Chrome, Edge, etc.).
+- Filter by known update processes in parent chain.
+
+### Response and Remediation
+- Cancel malicious BITS jobs: `bitsadmin /cancel <job_id>`
+- Delete downloaded payloads.
+- Review BITS for additional jobs using the same notification command pattern.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1197"
+name = "BITS Jobs"
+reference = "https://attack.mitre.org/techniques/T1197/"
+
+[rule.threat.tactic]
+id = "TA0003"
+name = "Persistence"
+reference = "https://attack.mitre.org/tactics/TA0003/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[rule.threat.tactic]
+id = "TA0005"
+name = "Defense Evasion"
+reference = "https://attack.mitre.org/tactics/TA0005/"

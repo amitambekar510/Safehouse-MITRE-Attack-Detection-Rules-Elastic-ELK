@@ -1,0 +1,142 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects impact techniques including mass account lockout or deletion, forced system
+shutdown/reboot, and firmware flashing tools used to corrupt UEFI/BIOS as a destructive
+final-stage attack. These are typically used by ransomware operators or nation-state
+actors during the final impact phase. Covers T1531, T1529, T1495.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Impact - Account Removal, System Shutdown, or Firmware Corruption"
+references = [
+  "https://attack.mitre.org/techniques/T1531/",
+  "https://attack.mitre.org/techniques/T1529/",
+  "https://attack.mitre.org/techniques/T1495/",
+]
+risk_score = 99
+rule_id = "a1b2c3d4-0014-4003-8001-000000000001"
+severity = "critical"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Impact",
+  "Data Source: Elastic Defend",
+  "Data Source: Windows Security Event Logs",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where host.os.type == "windows" and
+  (
+    /* Mass account deletion or disabling */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("net.exe", "net1.exe") and
+      process.args : ("user", "/delete", "/active:no")
+    ) or
+    /* PowerShell bulk account modification */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("powershell.exe", "pwsh.exe") and
+      process.args : (
+        "*Disable-ADAccount*", "*Remove-ADUser*",
+        "*Set-ADUser*-Enabled $false*"
+      )
+    ) or
+    /* Forced system shutdown or reboot */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("shutdown.exe", "shutdown") and
+      process.args : ("/s", "/r", "/f", "-s", "-r", "-f") and
+      not process.parent.name : (
+        "svchost.exe", "services.exe", "WUDFHost.exe",
+        "TrustedInstaller.exe", "WindowsUpdateAgent.exe"
+      )
+    ) or
+    /* UEFI firmware flashing tools */
+    (event.category == "process" and event.type == "start" and
+      process.name : (
+        "flashrom*", "afudos*", "amiflash*", "bupdater*",
+        "fpt.exe", "fptw64.exe", "H2OFFT*", "Winflash*"
+      )
+    ) or
+    /* LoJax-style firmware persistence/corruption */
+    (event.category == "file" and event.type == "creation" and
+      file.path : (
+        "?:\\Windows\\System32\\drivers\\*.sys",
+        "?:\\EFI\\*"
+      ) and
+      not process.code_signature.trusted == true and
+      not process.name : ("msiexec.exe", "TrustedInstaller.exe")
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Account Removal / Shutdown / Firmware
+
+#### Possible Investigation Steps
+- For account deletion: identify all deleted/disabled accounts and which process did it.
+- For shutdown: determine if this is coordinated across multiple hosts (ransomware indicator).
+- For firmware tools: identify which process launched the flashing tool and the source.
+- Assess whether this is part of a broader destructive attack campaign.
+
+### False Positive Analysis
+- IT deprovisioning scripts for terminated employees.
+- Scheduled system reboots for update cycles.
+
+### Response and Remediation
+- **CRITICAL**: if firmware flash confirmed, the hardware may need replacement.
+- Restore accounts from AD backup or recycle bin.
+- Activate incident response and business continuity plan.
+- Escalate to CISO and legal team immediately.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1531"
+name = "Account Access Removal"
+reference = "https://attack.mitre.org/techniques/T1531/"
+
+[rule.threat.tactic]
+id = "TA0040"
+name = "Impact"
+reference = "https://attack.mitre.org/tactics/TA0040/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1529"
+name = "System Shutdown/Reboot"
+reference = "https://attack.mitre.org/techniques/T1529/"
+
+[rule.threat.tactic]
+id = "TA0040"
+name = "Impact"
+reference = "https://attack.mitre.org/tactics/TA0040/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1495"
+name = "Firmware Corruption"
+reference = "https://attack.mitre.org/techniques/T1495/"
+
+[rule.threat.tactic]
+id = "TA0040"
+name = "Impact"
+reference = "https://attack.mitre.org/tactics/TA0040/"

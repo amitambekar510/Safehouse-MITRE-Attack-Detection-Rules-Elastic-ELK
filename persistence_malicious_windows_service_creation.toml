@@ -1,0 +1,104 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects creation or modification of Windows services for persistence or privilege escalation.
+Adversaries create malicious services pointing to attacker-controlled binaries or use service
+ImagePath manipulation to achieve code execution at SYSTEM level.
+Covers T1543.003 - Create or Modify System Process: Windows Service.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Malicious Windows Service Creation or Modification"
+references = [
+  "https://attack.mitre.org/techniques/T1543/",
+  "https://attack.mitre.org/techniques/T1543/003/",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0004-4002-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Persistence",
+  "Tactic: Privilege Escalation",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+registry where host.os.type == "windows" and event.type in ("creation", "change") and
+  registry.path : (
+    "HKLM\\SYSTEM\\*ControlSet*\\Services\\*\\ImagePath",
+    "HKLM\\SYSTEM\\*ControlSet*\\Services\\*\\Start",
+    "HKLM\\SYSTEM\\*ControlSet*\\Services\\*\\Type"
+  ) and
+  registry.data.strings : (
+    "*\\AppData\\*", "*\\Temp\\*", "*\\ProgramData\\*",
+    "*cmd.exe*", "*powershell.exe*", "*pwsh.exe*",
+    "*mshta.exe*", "*wscript.exe*", "*cscript.exe*",
+    "*rundll32.exe*", "*regsvr32.exe*",
+    "*\\Users\\Public\\*"
+  ) and
+  not process.name : (
+    "msiexec.exe", "setup.exe", "install.exe",
+    "TrustedInstaller.exe", "services.exe"
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Malicious Service Creation
+
+#### Possible Investigation Steps
+- Identify the service name and the binary/script it points to.
+- Review the file at the ImagePath location — hash, signature, creation time.
+- Determine which process created the registry key.
+- Check Windows Event ID 7045 (new service installed) for service details.
+
+### False Positive Analysis
+- Legitimate software installers creating their own services.
+- EDR/AV products installing kernel-level drivers.
+
+### Response and Remediation
+- Stop and disable the malicious service (`sc stop / sc delete`).
+- Remove the underlying binary.
+- Review for additional persistence mechanisms on the host.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1543"
+name = "Create or Modify System Process"
+reference = "https://attack.mitre.org/techniques/T1543/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1543.003"
+name = "Windows Service"
+reference = "https://attack.mitre.org/techniques/T1543/003/"
+
+[rule.threat.tactic]
+id = "TA0003"
+name = "Persistence"
+reference = "https://attack.mitre.org/tactics/TA0003/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[rule.threat.tactic]
+id = "TA0004"
+name = "Privilege Escalation"
+reference = "https://attack.mitre.org/tactics/TA0004/"

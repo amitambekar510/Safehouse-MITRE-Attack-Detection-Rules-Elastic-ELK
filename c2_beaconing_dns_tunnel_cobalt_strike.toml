@@ -1,0 +1,131 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["network", "endpoint"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects Command and Control (C2) activity including beaconing patterns, DNS tunneling,
+C2 over HTTPS using known Cobalt Strike/Metasploit/Sliver/Brute Ratel indicators,
+and suspicious encrypted channels to unusual destinations.
+Covers T1071, T1095, T1572, T1568, T1132.
+"""
+from = "now-9m"
+index = ["logs-network.*", "packetbeat-*", "logs-endpoint.events.*"]
+language = "eql"
+license = "Elastic License v2"
+name = "C2 Beaconing or Encrypted Channel to Suspicious Destination"
+references = [
+  "https://attack.mitre.org/techniques/T1071/",
+  "https://attack.mitre.org/techniques/T1572/",
+  "https://attack.mitre.org/techniques/T1132/",
+  "https://attack.mitre.org/techniques/T1568/",
+  "https://www.cobaltstrike.com/",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0012-4001-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "Domain: Network",
+  "OS: Windows",
+  "OS: Linux",
+  "Use Case: Threat Detection",
+  "Tactic: Command and Control",
+  "Data Source: Network",
+  "Data Source: Elastic Defend",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+network where event.type == "connection" and
+  (
+    /* DNS over high port or unusually long subdomain (DNS tunneling) */
+    (network.protocol == "dns" and
+      dns.question.name : (
+        "*.*.*.*.*.*.*.*.*.*.*.*.com",  /* deeply nested subdomains */
+        "*.dnscat*", "*.iodine*", "*.dns2tcp*"
+      )
+    ) or
+    /* Known C2 frameworks ports/patterns */
+    (destination.port in (50050, 8080, 8443, 8888, 4444, 4445, 443) and
+      not destination.ip : (
+        "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+        "127.0.0.1", "::1"
+      ) and
+      process.name : (
+        "powershell.exe", "pwsh.exe", "cmd.exe", "wscript.exe",
+        "cscript.exe", "mshta.exe", "rundll32.exe", "regsvr32.exe",
+        "certutil.exe", "svchost.exe", "notepad.exe"
+      )
+    ) or
+    /* Cobalt Strike default certificate CN patterns or Malleable C2 */
+    (destination.port == 443 and
+      tls.server.subject : (
+        "CN=Major Cobalt Strike*", "CN=msupdate*",
+        "CN=jquery.com*"
+      )
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating C2 Communication
+
+#### Possible Investigation Steps
+- Capture and analyse the C2 traffic for known framework signatures.
+- Review the beaconing pattern — regular intervals indicate automated C2.
+- Identify all commands issued over the C2 channel from logs.
+- Determine how the C2 implant was delivered and deployed.
+
+### False Positive Analysis
+- Legitimate HTTPS traffic on port 443 is common — focus on the process making the connection.
+- Security tools performing threat intelligence lookups.
+
+### Response and Remediation
+- Block the identified C2 IP/domain at the perimeter firewall and DNS.
+- Isolate the infected host.
+- Identify all lateral movement from the C2-connected host.
+- Remove the C2 implant (search all startup, service, and scheduled task locations).
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1071"
+name = "Application Layer Protocol"
+reference = "https://attack.mitre.org/techniques/T1071/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1071.001"
+name = "Web Protocols"
+reference = "https://attack.mitre.org/techniques/T1071/001/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1071.004"
+name = "DNS"
+reference = "https://attack.mitre.org/techniques/T1071/004/"
+
+[rule.threat.tactic]
+id = "TA0011"
+name = "Command and Control"
+reference = "https://attack.mitre.org/tactics/TA0011/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1572"
+name = "Protocol Tunneling"
+reference = "https://attack.mitre.org/techniques/T1572/"
+
+[rule.threat.tactic]
+id = "TA0011"
+name = "Command and Control"
+reference = "https://attack.mitre.org/tactics/TA0011/"

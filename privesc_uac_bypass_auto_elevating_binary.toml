@@ -1,0 +1,111 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects User Account Control (UAC) bypass techniques commonly used by adversaries to
+elevate privileges without triggering a UAC prompt. Identifies known UAC bypass methods
+including fodhelper, eventvwr, computerdefaults, sdclt, and other auto-elevating binaries.
+Covers T1548.002 - Abuse Elevation Control Mechanism: Bypass User Account Control.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "UAC Bypass via Auto-Elevating Binaries or Registry Manipulation"
+references = [
+  "https://attack.mitre.org/techniques/T1548/002/",
+  "https://github.com/hfiref0x/UACME",
+  "https://www.elastic.co/security-labs/hunting-for-persistence-using-elastic-security",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0005-4001-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Privilege Escalation",
+  "Tactic: Defense Evasion",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+process where host.os.type == "windows" and event.type == "start" and
+  (
+    /* fodhelper UAC bypass */
+    (process.parent.name : "fodhelper.exe" and process.name : ("cmd.exe", "powershell.exe", "pwsh.exe")) or
+    /* eventvwr UAC bypass */
+    (process.parent.name : "eventvwr.exe" and process.name : ("cmd.exe", "powershell.exe")) or
+    /* sdclt UAC bypass */
+    (process.parent.name : "sdclt.exe" and process.name : ("cmd.exe", "powershell.exe")) or
+    /* computerdefaults UAC bypass */
+    (process.parent.name : "computerdefaults.exe" and process.name : ("cmd.exe", "powershell.exe")) or
+    /* cmstp UAC bypass */
+    (process.parent.name : "cmstp.exe" and
+      process.name : ("cmd.exe", "powershell.exe", "mshta.exe")) or
+    /* Token elevation — high integrity child from medium parent */
+    (process.token.integrity_level_name : "high" and
+      process.parent.token.integrity_level_name : "medium" and
+      process.name : ("cmd.exe", "powershell.exe", "pwsh.exe") and
+      not process.parent.name : (
+        "consent.exe", "msiexec.exe", "setup.exe", "install.exe"
+      )
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating UAC Bypass
+
+#### Possible Investigation Steps
+- Identify which auto-elevating binary was exploited.
+- Check the registry key used for the bypass (e.g., HKCU\\Software\\Classes\\ms-settings\\shell\\open\\command).
+- Review subsequent commands run in the elevated context.
+- Look for privilege escalation follow-on actions: new admin accounts, service installs.
+
+### False Positive Analysis
+- Some legitimate software launches elevated child processes via auto-elevating parents.
+- Windows built-in tasks may use these patterns in specific update scenarios.
+
+### Response and Remediation
+- Terminate the elevated process.
+- Remove any registry keys used for the bypass.
+- Enable UAC at the highest level and enforce via Group Policy.
+- Investigate what was done with the elevated privileges.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1548"
+name = "Abuse Elevation Control Mechanism"
+reference = "https://attack.mitre.org/techniques/T1548/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1548.002"
+name = "Bypass User Account Control"
+reference = "https://attack.mitre.org/techniques/T1548/002/"
+
+[rule.threat.tactic]
+id = "TA0004"
+name = "Privilege Escalation"
+reference = "https://attack.mitre.org/tactics/TA0004/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[rule.threat.tactic]
+id = "TA0005"
+name = "Defense Evasion"
+reference = "https://attack.mitre.org/tactics/TA0005/"

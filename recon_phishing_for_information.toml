@@ -1,0 +1,96 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["email", "endpoint"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects spear-phishing emails or messages designed to gather information from targets rather than
+deliver malware. Adversaries send messages that trick targets into revealing credentials, personal
+information, or organizational details. Covers T1598 - Phishing for Information.
+"""
+from = "now-9m"
+index = ["logs-o365.*", "logs-google_workspace.*", "filebeat-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Phishing for Information - Suspicious Email Link or Credential Harvesting"
+references = [
+  "https://attack.mitre.org/techniques/T1598/",
+  "https://attack.mitre.org/techniques/T1598/001/",
+  "https://attack.mitre.org/techniques/T1598/002/",
+  "https://attack.mitre.org/techniques/T1598/003/",
+]
+risk_score = 55
+rule_id = "a1b2c3d4-0001-4001-8001-000000000002"
+severity = "medium"
+tags = [
+  "Domain: Cloud",
+  "Domain: Email",
+  "Use Case: Threat Detection",
+  "Tactic: Reconnaissance",
+  "Data Source: Microsoft 365",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+email where event.action == "email_received" and
+  (
+    email.subject : (
+      "*verify your account*", "*confirm your identity*", "*update your credentials*",
+      "*account suspended*", "*unusual sign-in*", "*action required*",
+      "*password expired*", "*security alert*"
+    ) or
+    url.domain : (
+      "*.ngrok.io", "*.ngrok-free.app", "*.trycloudflare.com",
+      "*.000webhostapp.com", "*.pages.dev"
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Phishing for Information
+
+#### Possible Investigation Steps
+- Review the full email headers to identify spoofed sender domains.
+- Examine any embedded links for credential harvesting pages.
+- Check whether any recipients clicked the links using proxy/web gateway logs.
+- Identify if any credentials were entered on the phishing page.
+
+### False Positive Analysis
+- Legitimate password reset emails may match subject patterns.
+- Security awareness training phishing simulations.
+
+### Response and Remediation
+- Quarantine the phishing email from all affected mailboxes.
+- Block the sender domain and linked URLs at the email gateway.
+- If credentials were entered, force password resets immediately.
+- Notify affected users.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1598"
+name = "Phishing for Information"
+reference = "https://attack.mitre.org/techniques/T1598/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1598.002"
+name = "Spearphishing Attachment"
+reference = "https://attack.mitre.org/techniques/T1598/002/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1598.003"
+name = "Spearphishing Link"
+reference = "https://attack.mitre.org/techniques/T1598/003/"
+
+[rule.threat.tactic]
+id = "TA0043"
+name = "Reconnaissance"
+reference = "https://attack.mitre.org/tactics/TA0043/"

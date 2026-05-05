@@ -1,0 +1,93 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects creation of WMI permanent event subscriptions used for persistent execution.
+Adversaries abuse WMI subscriptions (EventFilter + EventConsumer + FilterToConsumerBinding)
+to execute arbitrary code on system events or at scheduled intervals without creating
+scheduled tasks or registry keys. Covers T1546.003.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "WMI Permanent Event Subscription for Persistence"
+references = [
+  "https://attack.mitre.org/techniques/T1546/003/",
+  "https://www.elastic.co/security-labs/hunting-for-persistence-using-elastic-security",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0004-4003-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Persistence",
+  "Tactic: Privilege Escalation",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where host.os.type == "windows" and
+  (
+    /* Sysmon WMI Event Consumer creation */
+    (event.provider == "Microsoft-Windows-Sysmon" and event.code in ("19", "20", "21")) or
+    /* Process creating WMI subscription objects */
+    (event.type == "start" and process.name : ("wmic.exe", "powershell.exe", "pwsh.exe") and
+      process.args : (
+        "*EventFilter*", "*EventConsumer*", "*FilterToConsumerBinding*",
+        "*CommandLineEventConsumer*", "*ActiveScriptEventConsumer*"
+      )
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating WMI Permanent Subscription
+
+#### Possible Investigation Steps
+- Retrieve and inspect the WMI subscription using:
+  `Get-WMIObject -Namespace root\\subscription -Class __EventFilter`
+  `Get-WMIObject -Namespace root\\subscription -Class CommandLineEventConsumer`
+- Review the CommandLineTemplate or ScriptText for the malicious payload.
+- Identify the process and account that created the subscription.
+
+### False Positive Analysis
+- Some enterprise monitoring tools use WMI subscriptions for health checking.
+- Backup and asset management tools may use WMI subscriptions.
+
+### Response and Remediation
+- Remove the WMI subscription:
+  `Get-WMIObject -Namespace root\\subscription -Class __FilterToConsumerBinding | Remove-WMIObject`
+- Identify and remove the underlying payload.
+- Monitor for re-creation of the subscription.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1546"
+name = "Event Triggered Execution"
+reference = "https://attack.mitre.org/techniques/T1546/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1546.003"
+name = "Windows Management Instrumentation Event Subscription"
+reference = "https://attack.mitre.org/techniques/T1546/003/"
+
+[rule.threat.tactic]
+id = "TA0003"
+name = "Persistence"
+reference = "https://attack.mitre.org/tactics/TA0003/"

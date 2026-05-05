@@ -1,0 +1,115 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects Windows Management Instrumentation (WMI) used for remote or local execution.
+Adversaries abuse WMI to execute commands, move laterally, and maintain persistence.
+This rule covers WMIC spawning command processors, WmiPrvSE spawning processes,
+and suspicious WMI queries for process creation. Covers T1047.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "WMI Abuse - Suspicious Process Execution via WMI"
+references = [
+  "https://attack.mitre.org/techniques/T1047/",
+  "https://www.elastic.co/security-labs/hunting-for-persistence-using-elastic-security",
+]
+risk_score = 65
+rule_id = "a1b2c3d4-0003-4001-8001-000000000002"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Execution",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+process where host.os.type == "windows" and event.type == "start" and
+  (
+    /* WMI Provider Host spawning suspicious children */
+    (
+      process.parent.name : "WmiPrvSE.exe" and
+      process.name : (
+        "cmd.exe", "powershell.exe", "pwsh.exe", "wscript.exe",
+        "cscript.exe", "mshta.exe", "regsvr32.exe", "rundll32.exe",
+        "certutil.exe", "bitsadmin.exe", "msiexec.exe",
+        "net.exe", "net1.exe", "sc.exe", "schtasks.exe"
+      )
+    ) or
+    /* WMIC launching command interpreters or scripting engines */
+    (
+      process.parent.name : "wmic.exe" and
+      process.name : ("cmd.exe", "powershell.exe", "pwsh.exe")
+    ) or
+    /* WMIC executing remote commands */
+    (
+      process.name : "wmic.exe" and
+      process.args : ("/node:*", "process call create", "os get", "shadowcopy")
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating WMI Abuse
+
+#### Possible Investigation Steps
+- Identify what triggered the WMI execution (script, remote connection, scheduled task).
+- For `WmiPrvSE.exe` parent: review network connections to identify if lateral movement occurred.
+- Check `process.command_line` for malicious payloads or recon commands.
+- Correlate with Windows Event ID 4648 for network logon context.
+
+### False Positive Analysis
+- SCCM/MEM client uses WMI extensively for inventory and deployment.
+- Enterprise monitoring tools (HP SIM, Dell OpenManage).
+- IT scripts using WMIC for system management.
+
+### Response and Remediation
+- If malicious, isolate the endpoint and terminate suspicious processes.
+- Review WMI subscriptions for persistence (permanent event subscriptions).
+- Remove any malicious WMI subscriptions using `Get-WMIObject`.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1047"
+name = "Windows Management Instrumentation"
+reference = "https://attack.mitre.org/techniques/T1047/"
+
+[rule.threat.tactic]
+id = "TA0002"
+name = "Execution"
+reference = "https://attack.mitre.org/tactics/TA0002/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1546"
+name = "Event Triggered Execution"
+reference = "https://attack.mitre.org/techniques/T1546/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1546.003"
+name = "Windows Management Instrumentation Event Subscription"
+reference = "https://attack.mitre.org/techniques/T1546/003/"
+
+[rule.threat.tactic]
+id = "TA0003"
+name = "Persistence"
+reference = "https://attack.mitre.org/tactics/TA0003/"

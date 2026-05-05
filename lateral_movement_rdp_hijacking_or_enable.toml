@@ -1,0 +1,127 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects suspicious Remote Desktop Protocol (RDP) activity including RDP hijacking via
+tscon.exe, shadowing active sessions, enabling RDP on non-standard ports, and
+RDP connections from unusual source IPs or after lateral movement indicators.
+Covers T1021.001 - Remote Desktop Protocol and T1563.002 - RDP Hijacking.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "RDP Lateral Movement or Session Hijacking"
+references = [
+  "https://attack.mitre.org/techniques/T1021/001/",
+  "https://attack.mitre.org/techniques/T1563/002/",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0010-4002-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Lateral Movement",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where host.os.type == "windows" and
+  (
+    /* RDP hijacking via tscon.exe */
+    (event.category == "process" and event.type == "start" and
+      process.name : "tscon.exe" and
+      not process.parent.name : ("rdpclip.exe", "svchost.exe")
+    ) or
+    /* Enabling RDP via registry */
+    (event.category == "registry" and event.type in ("change", "creation") and
+      registry.path : (
+        "HKLM\\SYSTEM\\*ControlSet*\\Control\\Terminal Server\\fDenyTSConnections",
+        "HKLM\\SYSTEM\\*ControlSet*\\Control\\Terminal Server\\WinStations\\RDP-Tcp\\PortNumber"
+      )
+    ) or
+    /* RDP forwarding or shadowing */
+    (event.category == "process" and event.type == "start" and
+      process.name : "mstsc.exe" and
+      process.args : ("/v:*", "/shadow:*") and
+      process.parent.name : ("cmd.exe", "powershell.exe", "pwsh.exe")
+    ) or
+    /* Sticky keys / accessibility tool backdoor for RDP */
+    (event.category == "file" and event.type in ("creation", "change") and
+      file.path : (
+        "?:\\Windows\\System32\\sethc.exe",
+        "?:\\Windows\\System32\\utilman.exe",
+        "?:\\Windows\\System32\\osk.exe"
+      ) and
+      not process.name : ("TrustedInstaller.exe", "wusa.exe", "msiexec.exe")
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating RDP Lateral Movement
+
+#### Possible Investigation Steps
+- For tscon: identify the target session and whether it belongs to a privileged account.
+- For registry changes: determine who enabled RDP and from which system.
+- For accessibility backdoor: the file should never be modified by non-update processes.
+- Review Windows Event 4624 (Logon Type 10) for RDP authentication events.
+
+### False Positive Analysis
+- IT administrators enabling RDP for remote support.
+- Remote desktop tools using accessibility hooks.
+
+### Response and Remediation
+- Disable RDP if not required, or restrict via firewall to jump hosts only.
+- Enable NLA (Network Level Authentication).
+- Review and terminate suspicious RDP sessions.
+- Restore accessibility tool binaries if replaced.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1021"
+name = "Remote Services"
+reference = "https://attack.mitre.org/techniques/T1021/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1021.001"
+name = "Remote Desktop Protocol"
+reference = "https://attack.mitre.org/techniques/T1021/001/"
+
+[rule.threat.tactic]
+id = "TA0008"
+name = "Lateral Movement"
+reference = "https://attack.mitre.org/tactics/TA0008/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1563"
+name = "Remote Service Session Hijacking"
+reference = "https://attack.mitre.org/techniques/T1563/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1563.002"
+name = "RDP Hijacking"
+reference = "https://attack.mitre.org/techniques/T1563/002/"
+
+[rule.threat.tactic]
+id = "TA0008"
+name = "Lateral Movement"
+reference = "https://attack.mitre.org/tactics/TA0008/"

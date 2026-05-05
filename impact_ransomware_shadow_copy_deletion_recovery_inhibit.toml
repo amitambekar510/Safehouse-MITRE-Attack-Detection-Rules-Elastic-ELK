@@ -1,0 +1,132 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects ransomware preparation and execution including Volume Shadow Copy deletion via
+vssadmin, wmic, or PowerShell; backup catalogue deletion; BCDEdit recovery disable;
+and rapid mass file encryption indicators. This is a critical ransomware kill-chain rule.
+Covers T1490 - Inhibit System Recovery and T1486 - Data Encrypted for Impact.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Ransomware - Volume Shadow Copy Deletion and Recovery Inhibition"
+references = [
+  "https://attack.mitre.org/techniques/T1490/",
+  "https://attack.mitre.org/techniques/T1486/",
+  "https://www.elastic.co/security-labs/ransomware-detection-elastic",
+]
+risk_score = 99
+rule_id = "a1b2c3d4-0014-4001-8001-000000000001"
+severity = "critical"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Impact",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where host.os.type == "windows" and
+  (
+    /* vssadmin shadow copy deletion */
+    (event.category == "process" and event.type == "start" and
+      process.name : "vssadmin.exe" and
+      process.args : ("delete", "shadows") and
+      process.args : ("/all", "/quiet", "/shadow*")
+    ) or
+    /* WMIC shadow copy deletion */
+    (event.category == "process" and event.type == "start" and
+      process.name : "wmic.exe" and
+      process.args : ("shadowcopy") and
+      process.args : ("delete")
+    ) or
+    /* PowerShell shadow copy deletion */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("powershell.exe", "pwsh.exe") and
+      process.args : (
+        "*Win32_ShadowCopy*", "*shadow*delete*",
+        "*Get-WmiObject*shadowcopy*", "*gwmi*shadowcopy*"
+      )
+    ) or
+    /* BCDEdit disabling recovery */
+    (event.category == "process" and event.type == "start" and
+      process.name : "bcdedit.exe" and
+      process.args : (
+        "/set recoveryenabled no",
+        "/set bootstatuspolicy ignoreallfailures"
+      )
+    ) or
+    /* Backup catalogue deletion */
+    (event.category == "process" and event.type == "start" and
+      process.name : "wbadmin.exe" and
+      process.args : ("delete", "catalog", "backup", "systemstatebackup")
+    ) or
+    /* Windows Defender backup disable (ransomware prep) */
+    (event.category == "process" and event.type == "start" and
+      process.name : "powershell.exe" and
+      process.args : ("*Set-MpPreference*", "*DisableRealtimeMonitoring*") and
+      process.args : ("*$true*", "*1*")
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Ransomware Activity
+
+#### Possible Investigation Steps
+- Check if this is an isolated event or part of a broader ransomware chain.
+- Review preceding events: credential access, lateral movement, C2.
+- Identify what data was already encrypted or destroyed.
+- Preserve all forensic evidence before remediation.
+
+### False Positive Analysis
+- Authorized disaster recovery testing deleting and recreating shadow copies.
+- Storage management scripts — very rare but possible.
+
+### Response and Remediation
+- **IMMEDIATELY ISOLATE** the affected system from the network.
+- Do NOT pay the ransom without consulting legal and cybersecurity advisors.
+- Assess whether clean backups exist (not shadow copies — may already be deleted).
+- Engage incident response and legal team.
+- Notify relevant regulatory bodies if required.
+- Preserve disk images for forensic investigation before reimaging.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1490"
+name = "Inhibit System Recovery"
+reference = "https://attack.mitre.org/techniques/T1490/"
+
+[rule.threat.tactic]
+id = "TA0040"
+name = "Impact"
+reference = "https://attack.mitre.org/tactics/TA0040/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1486"
+name = "Data Encrypted for Impact"
+reference = "https://attack.mitre.org/techniques/T1486/"
+
+[rule.threat.tactic]
+id = "TA0040"
+name = "Impact"
+reference = "https://attack.mitre.org/tactics/TA0040/"

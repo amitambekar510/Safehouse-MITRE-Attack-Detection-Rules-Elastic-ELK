@@ -1,0 +1,102 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects DLL side-loading or DLL search order hijacking where a malicious DLL is placed
+in a directory that takes precedence over the legitimate DLL location. Adversaries exploit
+the Windows DLL search order to load malicious code via trusted executables.
+Covers T1574.001 - DLL Search Order Hijacking and T1574.002 - DLL Side-Loading.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "DLL Side-Loading or Hijack Execution via Trusted Binary"
+references = [
+  "https://attack.mitre.org/techniques/T1574/001/",
+  "https://attack.mitre.org/techniques/T1574/002/",
+]
+risk_score = 65
+rule_id = "a1b2c3d4-0004-4004-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Persistence",
+  "Tactic: Privilege Escalation",
+  "Tactic: Defense Evasion",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+library where host.os.type == "windows" and
+  dll.code_signature.trusted == false and
+  dll.code_signature.exists == false and
+  process.code_signature.trusted == true and
+  not dll.path : (
+    "C:\\Windows\\System32\\*",
+    "C:\\Windows\\SysWOW64\\*",
+    "C:\\Windows\\WinSxS\\*",
+    "C:\\Program Files\\*",
+    "C:\\Program Files (x86)\\*"
+  ) and
+  dll.path : (
+    "C:\\Users\\*",
+    "C:\\ProgramData\\*",
+    "C:\\Temp\\*",
+    "C:\\Windows\\Temp\\*"
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating DLL Side-Loading
+
+#### Possible Investigation Steps
+- Identify the unsigned DLL path and compare with the legitimate DLL name.
+- Check the DLL creation time relative to the loading process.
+- Analyse the DLL content — PE headers, exports, strings, imports.
+- Determine how the DLL was placed in that directory.
+
+### False Positive Analysis
+- Some legitimate third-party applications bundle DLLs in user directories.
+- Portable applications that store DLLs alongside the executable.
+
+### Response and Remediation
+- Delete the malicious DLL and quarantine for analysis.
+- Identify how the DLL was placed (initial access, dropper).
+- Restrict write permissions on application directories.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1574"
+name = "Hijack Execution Flow"
+reference = "https://attack.mitre.org/techniques/T1574/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1574.001"
+name = "DLL Search Order Hijacking"
+reference = "https://attack.mitre.org/techniques/T1574/001/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1574.002"
+name = "DLL Side-Loading"
+reference = "https://attack.mitre.org/techniques/T1574/002/"
+
+[rule.threat.tactic]
+id = "TA0003"
+name = "Persistence"
+reference = "https://attack.mitre.org/tactics/TA0003/"

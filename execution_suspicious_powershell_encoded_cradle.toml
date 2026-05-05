@@ -1,0 +1,118 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects suspicious PowerShell execution patterns including encoded commands, download cradles,
+AMSI bypass techniques, reflective loading, and suspicious argument patterns used by attackers.
+Covers T1059.001 - Command and Scripting Interpreter: PowerShell.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*", "logs-windows.powershell*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Suspicious PowerShell Execution - Encoded Command or Download Cradle"
+references = [
+  "https://attack.mitre.org/techniques/T1059/001/",
+  "https://www.elastic.co/security-labs/hunting-for-persistence-using-elastic-security",
+  "https://github.com/danielbohannon/Invoke-Obfuscation",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0003-4001-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Execution",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Data Source: PowerShell Logs",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+process where host.os.type == "windows" and event.type == "start" and
+  process.name : ("powershell.exe", "pwsh.exe") and
+  (
+    process.args : (
+      "-enc", "-EncodedCommand", "-ec",
+      "-w hidden", "-windowstyle hidden", "-nop", "-noprofile",
+      "IEX", "Invoke-Expression", "DownloadString", "DownloadFile",
+      "Net.WebClient", "WebRequest", "Start-BitsTransfer",
+      "FromBase64String", "System.Convert",
+      "Bypass", "-ExecutionPolicy Bypass",
+      "Add-MpPreference", "Set-MpPreference",
+      "AmsiUtils", "amsiInitFailed",
+      "Invoke-Mimikatz", "Invoke-Shellcode",
+      "Invoke-ReflectivePEInjection"
+    ) or
+    process.command_line : (
+      "*[System.Reflection.Assembly]::Load*",
+      "*[Convert]::FromBase64String*",
+      "*iex(*", "*iex (*",
+      "*invoke-webrequest*",
+      "*new-object system.net*"
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Suspicious PowerShell Execution
+
+#### Possible Investigation Steps
+- Decode any base64-encoded commands found in `process.command_line`.
+- Identify the parent process to determine how PowerShell was launched.
+- Check for network connections originating from the PowerShell process.
+- Look for file drops or registry modifications made by the PowerShell session.
+- Review PowerShell Script Block Logging (Event ID 4104) for full script content.
+
+### False Positive Analysis
+- IT administration scripts using encoded commands for legitimate purposes.
+- Software deployment tools (SCCM, PDQ Deploy).
+- Security tooling (CrowdStrike scripts, patching tools).
+
+### Response and Remediation
+- If malicious, kill the PowerShell process and isolate the endpoint.
+- Extract and analyze any payloads loaded in memory.
+- Enable PowerShell Script Block Logging and Constrained Language Mode.
+- Review scheduled tasks and registry for persistence.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1059"
+name = "Command and Scripting Interpreter"
+reference = "https://attack.mitre.org/techniques/T1059/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1059.001"
+name = "PowerShell"
+reference = "https://attack.mitre.org/techniques/T1059/001/"
+
+[rule.threat.tactic]
+id = "TA0002"
+name = "Execution"
+reference = "https://attack.mitre.org/tactics/TA0002/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1027"
+name = "Obfuscated Files or Information"
+reference = "https://attack.mitre.org/techniques/T1027/"
+
+[rule.threat.tactic]
+id = "TA0005"
+name = "Defense Evasion"
+reference = "https://attack.mitre.org/tactics/TA0005/"

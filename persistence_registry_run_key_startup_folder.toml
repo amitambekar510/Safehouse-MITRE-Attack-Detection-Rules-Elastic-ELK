@@ -1,0 +1,112 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects persistence established via registry Run keys, startup folders, or common autorun
+locations. Adversaries modify these registry keys to ensure their malware executes at every
+user logon or system boot. Covers T1547.001 - Registry Run Keys / Startup Folder.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Persistence via Registry Run Key or Startup Folder Modification"
+references = [
+  "https://attack.mitre.org/techniques/T1547/",
+  "https://attack.mitre.org/techniques/T1547/001/",
+  "https://www.elastic.co/security-labs/hunting-for-persistence-using-elastic-security",
+]
+risk_score = 65
+rule_id = "a1b2c3d4-0004-4001-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Persistence",
+  "Tactic: Privilege Escalation",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+registry where host.os.type == "windows" and event.type in ("creation", "change") and
+  registry.path : (
+    "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\*",
+    "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce\\*",
+    "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\*",
+    "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce\\*",
+    "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Run\\*",
+    "HKCU\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\*",
+    "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\*",
+    "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\BootExecute",
+    "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders\\*",
+    "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders\\*"
+  ) and
+  not registry.data.strings : (
+    "C:\\Windows\\System32\\*",
+    "C:\\Windows\\SysWOW64\\*",
+    "C:\\Program Files\\*",
+    "C:\\Program Files (x86)\\*"
+  ) and
+  not process.name : (
+    "msiexec.exe", "setup.exe", "install.exe", "installer.exe",
+    "MicrosoftEdgeUpdate.exe", "GoogleUpdate.exe", "OneDriveSetup.exe"
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Registry Run Key Persistence
+
+#### Possible Investigation Steps
+- Identify the registry path modified and the value written.
+- Review `registry.data.strings` to find the executable or script path.
+- Investigate the target file: hash, signature, creation time, and parent process.
+- Check if the persistence was added by a suspicious or unknown process.
+
+### False Positive Analysis
+- Software installers (MSI packages, setup.exe) legitimately modify Run keys.
+- User-installed software like Teams, OneDrive, Spotify.
+- Add known-good paths to exceptions.
+
+### Response and Remediation
+- Delete the malicious Run key value.
+- Remove the underlying payload file.
+- Investigate the initial access vector that enabled the persistence.
+- Review for additional persistence mechanisms.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1547"
+name = "Boot or Logon Autostart Execution"
+reference = "https://attack.mitre.org/techniques/T1547/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1547.001"
+name = "Registry Run Keys / Startup Folder"
+reference = "https://attack.mitre.org/techniques/T1547/001/"
+
+[rule.threat.tactic]
+id = "TA0003"
+name = "Persistence"
+reference = "https://attack.mitre.org/tactics/TA0003/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[rule.threat.tactic]
+id = "TA0004"
+name = "Privilege Escalation"
+reference = "https://attack.mitre.org/tactics/TA0004/"

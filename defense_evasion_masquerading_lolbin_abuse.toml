@@ -1,0 +1,128 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects masquerading techniques where adversaries rename malicious executables to match
+legitimate Windows system utilities, or run renamed copies of system binaries to evade
+detection. Also covers LOLBin abuse via regsvr32, rundll32, certutil, msiexec.
+Covers T1036 - Masquerading and T1218 - System Binary Proxy Execution.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Masquerading or LOLBin Abuse - Renamed System Binary or Proxy Execution"
+references = [
+  "https://attack.mitre.org/techniques/T1036/",
+  "https://attack.mitre.org/techniques/T1036.003/",
+  "https://attack.mitre.org/techniques/T1218/",
+  "https://lolbas-project.github.io/",
+]
+risk_score = 65
+rule_id = "a1b2c3d4-0006-4003-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Defense Evasion",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+process where host.os.type == "windows" and event.type == "start" and
+  (
+    /* Renamed system binaries — original name doesn't match process name */
+    (
+      process.pe.original_file_name : (
+        "PowerShell.EXE", "Cmd.Exe", "MSHTA.EXE", "WSCRIPT.EXE",
+        "CSCRIPT.EXE", "REGSVR32.EXE", "RUNDLL32.EXE", "CERTUTIL.EXE",
+        "BITSADMIN.EXE", "MSIEXEC.EXE", "WMIC.EXE"
+      ) and
+      not process.name : (
+        "powershell.exe", "cmd.exe", "mshta.exe", "wscript.exe",
+        "cscript.exe", "regsvr32.exe", "rundll32.exe", "certutil.exe",
+        "bitsadmin.exe", "msiexec.exe", "wmic.exe"
+      )
+    ) or
+    /* certutil abused for download or decode */
+    (
+      process.name : "certutil.exe" and
+      process.args : ("-urlcache", "-decode", "-encode", "-split", "http*")
+    ) or
+    /* regsvr32 loading remote COM scriptlets */
+    (
+      process.name : "regsvr32.exe" and
+      process.args : ("/s", "/u", "/i") and
+      process.args : ("http*", "scrobj.dll", "*.sct")
+    ) or
+    /* rundll32 loading from temp/appdata */
+    (
+      process.name : "rundll32.exe" and
+      process.args : (
+        "*\\AppData\\*", "*\\Temp\\*", "*\\ProgramData\\*",
+        "javascript:*", "http*"
+      )
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating LOLBin / Masquerading
+
+#### Possible Investigation Steps
+- Compare `process.name` with `process.pe.original_file_name` for renaming.
+- For certutil/regsvr32/rundll32: decode or retrieve the payload being executed.
+- Check network connections from the LOLBin process.
+- Identify parent process and delivery chain.
+
+### False Positive Analysis
+- Security testing tools may use LOLBin techniques for red team exercises.
+- Some legitimate software uses regsvr32 for COM registration.
+
+### Response and Remediation
+- Block identified LOLBin abuse via AppLocker or Windows Defender Application Control.
+- Quarantine and analyse the payload.
+- Investigate the delivery mechanism.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1036"
+name = "Masquerading"
+reference = "https://attack.mitre.org/techniques/T1036/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1036.003"
+name = "Rename System Utilities"
+reference = "https://attack.mitre.org/techniques/T1036/003/"
+
+[rule.threat.tactic]
+id = "TA0005"
+name = "Defense Evasion"
+reference = "https://attack.mitre.org/tactics/TA0005/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1218"
+name = "System Binary Proxy Execution"
+reference = "https://attack.mitre.org/techniques/T1218/"
+
+[rule.threat.tactic]
+id = "TA0005"
+name = "Defense Evasion"
+reference = "https://attack.mitre.org/tactics/TA0005/"

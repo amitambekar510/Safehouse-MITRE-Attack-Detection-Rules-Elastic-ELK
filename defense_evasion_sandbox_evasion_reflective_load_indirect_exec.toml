@@ -1,0 +1,143 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects sandbox and virtualization evasion techniques where malware checks for VM artifacts
+before executing, and reflective code loading where PE/shellcode is loaded directly into
+memory without touching disk. Also covers indirect command execution via pcalua, forfiles,
+and other proxy execution techniques to bypass detection.
+Covers T1497, T1620, T1202.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Defense Evasion - Sandbox Check, Reflective Load, or Indirect Command Execution"
+references = [
+  "https://attack.mitre.org/techniques/T1497/",
+  "https://attack.mitre.org/techniques/T1620/",
+  "https://attack.mitre.org/techniques/T1202/",
+]
+risk_score = 65
+rule_id = "a1b2c3d4-0006-4005-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Defense Evasion",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where host.os.type == "windows" and
+  (
+    /* Sandbox/VM artifact checks via WMI or registry query */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("powershell.exe", "pwsh.exe", "wmic.exe") and
+      process.args : (
+        "*VMware*", "*VirtualBox*", "*VBOX*", "*Xen*",
+        "*Hyper-V*", "*QEMU*", "*Sandboxie*",
+        "*IsDebuggerPresent*", "*CheckRemoteDebuggerPresent*",
+        "*GetTickCount*", "*SleepEx*"
+      )
+    ) or
+    /* Indirect command execution via pcalua, forfiles, syncappvpublishingserver */
+    (event.category == "process" and event.type == "start" and
+      process.name : (
+        "pcalua.exe", "forfiles.exe",
+        "SyncAppvPublishingServer.exe", "Appsyncpublishingserver.exe",
+        "bash.exe", "wsl.exe"
+      ) and
+      process.args : (
+        "*powershell*", "*cmd*", "*mshta*", "*wscript*",
+        "*cscript*", "*regsvr32*", "*rundll32*"
+      )
+    ) or
+    /* Reflective loading patterns in PowerShell */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("powershell.exe", "pwsh.exe") and
+      process.args : (
+        "*[System.Reflection.Assembly]::Load*",
+        "*[Reflection.Assembly]::Load*",
+        "*Invoke-ReflectivePEInjection*",
+        "*Invoke-Shellcode*",
+        "*$PELoadedInfo*"
+      )
+    ) or
+    /* WSL used to execute Linux commands on Windows (LOL) */
+    (event.category == "process" and event.type == "start" and
+      process.parent.name : "wsl.exe" and
+      process.name : ("curl", "wget", "nc", "python*", "bash", "sh") and
+      process.args : ("http*", "-e /bin/bash", "-e /bin/sh", "*/dev/tcp/*")
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Sandbox Evasion / Reflective Load
+
+#### Possible Investigation Steps
+- For sandbox checks: determine if execution was delayed or aborted based on results.
+- For reflective loading: capture memory dump of the process to extract loaded PE.
+- For WSL abuse: review the Linux-side command history and network connections.
+- For indirect execution: trace the full command chain being proxied.
+
+### False Positive Analysis
+- Security researchers and red teams use reflective loading legitimately.
+- WSL used by developers for legitimate development tasks.
+
+### Response and Remediation
+- Capture memory dump before terminating the process.
+- Block indirect execution LOLBins via WDAC/AppLocker policy.
+- Disable WSL if not required via Group Policy.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1497"
+name = "Virtualization/Sandbox Evasion"
+reference = "https://attack.mitre.org/techniques/T1497/"
+
+[rule.threat.tactic]
+id = "TA0005"
+name = "Defense Evasion"
+reference = "https://attack.mitre.org/tactics/TA0005/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1620"
+name = "Reflective Code Loading"
+reference = "https://attack.mitre.org/techniques/T1620/"
+
+[rule.threat.tactic]
+id = "TA0005"
+name = "Defense Evasion"
+reference = "https://attack.mitre.org/tactics/TA0005/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1202"
+name = "Indirect Command Execution"
+reference = "https://attack.mitre.org/techniques/T1202/"
+
+[rule.threat.tactic]
+id = "TA0005"
+name = "Defense Evasion"
+reference = "https://attack.mitre.org/tactics/TA0005/"

@@ -1,0 +1,116 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects attempts to bypass or disable Windows Defender / AMSI (Antimalware Scan Interface)
+through registry modification, PowerShell patching, or exclusion additions. Adversaries
+disable security tools to evade detection before deploying payloads.
+Covers T1562.001 - Impair Defenses: Disable or Modify Tools.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Impair Defenses - AV/EDR Disable or AMSI Bypass Attempt"
+references = [
+  "https://attack.mitre.org/techniques/T1562/",
+  "https://attack.mitre.org/techniques/T1562/001/",
+  "https://attack.mitre.org/techniques/T1562.006/",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0006-4002-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Defense Evasion",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where host.os.type == "windows" and
+  (
+    /* Registry-based AV disable */
+    (event.category == "registry" and event.type in ("creation", "change") and
+      registry.path : (
+        "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\DisableAntiSpyware",
+        "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection\\DisableRealtimeMonitoring",
+        "HKLM\\SOFTWARE\\Microsoft\\Windows Defender\\Features\\TamperProtection"
+      ) and registry.data.strings : ("1", "0")
+    ) or
+    /* PowerShell AMSI bypass patterns */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("powershell.exe", "pwsh.exe") and
+      process.args : (
+        "*AmsiUtils*", "*amsiInitFailed*", "*amsiContext*",
+        "*Set-MpPreference*-DisableRealtimeMonitoring*",
+        "*Add-MpPreference*-ExclusionPath*",
+        "*Add-MpPreference*-ExclusionProcess*"
+      )
+    ) or
+    /* Stopping security services */
+    (event.category == "process" and event.type == "start" and
+      process.name : ("sc.exe", "net.exe", "net1.exe") and
+      process.args : (
+        "stop", "delete", "config*disabled"
+      ) and process.args : (
+        "WinDefend", "MsMpEng", "Sense", "SecurityHealthService",
+        "wscsvc", "wuauserv", "msiserver"
+      )
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating AV/EDR Disable Attempt
+
+#### Possible Investigation Steps
+- Identify which security control was targeted.
+- Determine what process attempted the modification.
+- Check whether AV/EDR was actually successfully disabled.
+- Look for payload deployment immediately following the disable attempt.
+
+### False Positive Analysis
+- IT admins may disable real-time protection temporarily for maintenance.
+- Software testers running controlled environments.
+
+### Response and Remediation
+- Re-enable the disabled security control immediately.
+- Investigate what the attacker did while defenses were down.
+- Enable Tamper Protection on Windows Defender.
+- Isolate the endpoint if a payload was deployed.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1562"
+name = "Impair Defenses"
+reference = "https://attack.mitre.org/techniques/T1562/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1562.001"
+name = "Disable or Modify Tools"
+reference = "https://attack.mitre.org/techniques/T1562/001/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1562.006"
+name = "Indicator Blocking"
+reference = "https://attack.mitre.org/techniques/T1562/006/"
+
+[rule.threat.tactic]
+id = "TA0005"
+name = "Defense Evasion"
+reference = "https://attack.mitre.org/tactics/TA0005/"

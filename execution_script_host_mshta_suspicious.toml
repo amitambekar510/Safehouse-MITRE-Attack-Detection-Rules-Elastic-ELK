@@ -1,0 +1,120 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects suspicious use of Windows Script Host (wscript.exe / cscript.exe) or MSHTA to execute
+scripts or HTML applications from suspicious paths, command-line arguments, or network locations.
+Covers T1059.005 - Visual Basic, T1059.007 - JavaScript, and T1218.005 - Mshta.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Suspicious Script Host or MSHTA Execution from Unusual Location"
+references = [
+  "https://attack.mitre.org/techniques/T1059/005/",
+  "https://attack.mitre.org/techniques/T1059/007/",
+  "https://attack.mitre.org/techniques/T1218/005/",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0003-4003-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Execution",
+  "Tactic: Defense Evasion",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+process where host.os.type == "windows" and event.type == "start" and
+  process.name : ("wscript.exe", "cscript.exe", "mshta.exe") and
+  (
+    process.args : (
+      "http://*", "https://*", "ftp://*",
+      "\\\\*\\*\\*.vbs", "\\\\*\\*\\*.js", "\\\\*\\*\\*.hta",
+      "C:\\Users\\*\\AppData\\*", "C:\\ProgramData\\*",
+      "C:\\Windows\\Temp\\*", "C:\\Temp\\*"
+    ) or
+    process.parent.name : (
+      "cmd.exe", "powershell.exe", "pwsh.exe", "WINWORD.EXE",
+      "EXCEL.EXE", "OUTLOOK.EXE", "explorer.exe"
+    )
+  ) and
+  not process.args : (
+    "C:\\Program Files\\*", "C:\\Program Files (x86)\\*",
+    "C:\\Windows\\System32\\*"
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Script Host / MSHTA Abuse
+
+#### Possible Investigation Steps
+- Review the full script path and content if accessible.
+- For remote URLs: retrieve the script content and analyse the payload.
+- Identify parent process and context (email attachment, browser download, macro).
+- Check for network connections or file drops after script execution.
+
+### False Positive Analysis
+- Legitimate VBScript or JScript enterprise automation tools.
+- Installer scripts in ProgramData from known vendors.
+
+### Response and Remediation
+- Terminate the suspicious script process.
+- Block execution of scripts from temp/AppData via AppLocker or SRP.
+- Investigate the initial delivery vector (email, USB, download).
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1059"
+name = "Command and Scripting Interpreter"
+reference = "https://attack.mitre.org/techniques/T1059/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1059.005"
+name = "Visual Basic"
+reference = "https://attack.mitre.org/techniques/T1059/005/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1059.007"
+name = "JavaScript"
+reference = "https://attack.mitre.org/techniques/T1059/007/"
+
+[rule.threat.tactic]
+id = "TA0002"
+name = "Execution"
+reference = "https://attack.mitre.org/tactics/TA0002/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1218"
+name = "System Binary Proxy Execution"
+reference = "https://attack.mitre.org/techniques/T1218/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1218.005"
+name = "Mshta"
+reference = "https://attack.mitre.org/techniques/T1218/005/"
+
+[rule.threat.tactic]
+id = "TA0005"
+name = "Defense Evasion"
+reference = "https://attack.mitre.org/tactics/TA0005/"

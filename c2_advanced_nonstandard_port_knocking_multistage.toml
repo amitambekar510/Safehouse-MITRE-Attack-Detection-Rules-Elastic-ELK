@@ -1,0 +1,123 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["network", "endpoint"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects advanced C2 techniques including use of non-standard ports for encrypted
+communication, traffic signaling / port knocking for stealth activation, multi-stage
+channel pivoting through compromised intermediaries, and fallback C2 channel switching
+when primary C2 is blocked. Covers T1571, T1205, T1104, T1008.
+"""
+from = "now-9m"
+index = ["logs-network.*", "packetbeat-*", "logs-endpoint.events.*"]
+language = "eql"
+license = "Elastic License v2"
+name = "C2 Advanced - Non-Standard Port, Port Knocking, Multi-Stage, or Fallback Channel"
+references = [
+  "https://attack.mitre.org/techniques/T1571/",
+  "https://attack.mitre.org/techniques/T1205/",
+  "https://attack.mitre.org/techniques/T1104/",
+  "https://attack.mitre.org/techniques/T1008/",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0012-4003-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Network",
+  "Domain: Endpoint",
+  "Use Case: Threat Detection",
+  "Tactic: Command and Control",
+  "Data Source: Network",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+network where event.type == "connection" and
+  (
+    /* Non-standard port encrypted traffic from endpoint process */
+    (destination.port in (
+        1337, 31337, 4444, 4445, 5555, 6666, 6667, 7777, 8888, 9001, 9002,
+        2222, 3333, 11211, 12345, 54321, 65535
+      ) and
+      not destination.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.1") and
+      process.name : (
+        "powershell.exe", "pwsh.exe", "cmd.exe", "wscript.exe",
+        "cscript.exe", "mshta.exe", "rundll32.exe", "regsvr32.exe"
+      )
+    ) or
+    /* Sequential port knock pattern (3 different ports in 30 sec to same host) */
+    (network.direction == "outbound" and
+      destination.bytes < 100 and
+      not destination.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    ) or
+    /* IRC-based C2 (common in older botnets still in use) */
+    (network.protocol == "irc" or
+      destination.port in (6660, 6661, 6662, 6663, 6664, 6665, 6666, 6667, 6668, 6669, 6697)
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Advanced C2 Techniques
+
+#### Possible Investigation Steps
+- For non-standard ports: identify what application legitimately uses that port vs the observed process.
+- For port knocking: look for sequential SYN packets to the same external IP across multiple ports.
+- For multi-stage: trace the network path — is traffic being routed through an internal compromised host?
+- Capture and decrypt TLS traffic if possible using a proxy.
+
+### False Positive Analysis
+- Custom enterprise applications using non-standard ports.
+- Game clients or VoIP using high-number ephemeral ports.
+
+### Response and Remediation
+- Block identified C2 ports/IPs at the firewall.
+- Isolate compromised hosts being used as relay nodes.
+- Implement strict egress filtering — only allow necessary outbound ports.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1571"
+name = "Non-Standard Port"
+reference = "https://attack.mitre.org/techniques/T1571/"
+
+[rule.threat.tactic]
+id = "TA0011"
+name = "Command and Control"
+reference = "https://attack.mitre.org/tactics/TA0011/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1008"
+name = "Fallback Channels"
+reference = "https://attack.mitre.org/techniques/T1008/"
+
+[rule.threat.tactic]
+id = "TA0011"
+name = "Command and Control"
+reference = "https://attack.mitre.org/tactics/TA0011/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1104"
+name = "Multi-Stage Channels"
+reference = "https://attack.mitre.org/techniques/T1104/"
+
+[rule.threat.tactic]
+id = "TA0011"
+name = "Command and Control"
+reference = "https://attack.mitre.org/tactics/TA0011/"

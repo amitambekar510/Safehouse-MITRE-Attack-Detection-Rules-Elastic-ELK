@@ -1,0 +1,116 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects spear-phishing attachments that execute malicious code upon opening. Common initial access
+vector using Office macros, LNK files, ISO/IMG mounts, PDF exploits, or HTML smuggling to drop
+and execute payloads. Covers T1566 and sub-techniques.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Spear-Phishing Attachment - Suspicious Child Process from Office or Email Client"
+references = [
+  "https://attack.mitre.org/techniques/T1566/",
+  "https://attack.mitre.org/techniques/T1566/001/",
+  "https://attack.mitre.org/techniques/T1566/002/",
+  "https://www.elastic.co/security-labs/hunting-for-persistence-using-elastic-security",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0002-4001-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Initial Access",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+process where host.os.type == "windows" and event.type == "start" and
+  process.parent.name : (
+    "WINWORD.EXE", "EXCEL.EXE", "POWERPNT.EXE", "OUTLOOK.EXE",
+    "MSPUB.EXE", "MSACCESS.EXE", "onenote.exe", "teams.exe",
+    "thunderbird.exe", "eudora.exe", "foxmail.exe"
+  ) and
+  process.name : (
+    "cmd.exe", "powershell.exe", "pwsh.exe", "wscript.exe", "cscript.exe",
+    "mshta.exe", "wmic.exe", "regsvr32.exe", "rundll32.exe", "certutil.exe",
+    "bitsadmin.exe", "msiexec.exe", "installutil.exe", "regasm.exe",
+    "regsvcs.exe", "msdt.exe", "pcalua.exe"
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Spear-Phishing Attachment Execution
+
+#### Possible Investigation Steps
+- Identify the parent Office application and the email that triggered it.
+- Review `process.command_line` for encoded payloads, download cradles, or LOLBin abuse.
+- Check network connections spawned by the child process for C2 or download URLs.
+- Look for file drops in temp, appdata, or startup directories.
+
+### False Positive Analysis
+- Macro-enabled templates that launch legitimate helper processes.
+- Document automation tools that use Office COM automation.
+
+### Response and Remediation
+- Kill the suspicious child process immediately.
+- Isolate the endpoint.
+- Extract and analyze dropped files.
+- Force password reset if credential access was observed.
+- Patch Office and disable macros via Group Policy.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1566"
+name = "Phishing"
+reference = "https://attack.mitre.org/techniques/T1566/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1566.001"
+name = "Spearphishing Attachment"
+reference = "https://attack.mitre.org/techniques/T1566/001/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1566.002"
+name = "Spearphishing Link"
+reference = "https://attack.mitre.org/techniques/T1566/002/"
+
+[rule.threat.tactic]
+id = "TA0001"
+name = "Initial Access"
+reference = "https://attack.mitre.org/tactics/TA0001/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1204"
+name = "User Execution"
+reference = "https://attack.mitre.org/techniques/T1204/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1204.002"
+name = "Malicious File"
+reference = "https://attack.mitre.org/techniques/T1204/002/"
+
+[rule.threat.tactic]
+id = "TA0002"
+name = "Execution"
+reference = "https://attack.mitre.org/tactics/TA0002/"

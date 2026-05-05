@@ -1,0 +1,111 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects access token manipulation techniques including token impersonation, token theft via
+SeImpersonatePrivilege abuse (Potato attacks), and CreateProcessWithToken/DuplicateToken API
+abuse to run processes under another user's security context.
+Covers T1134 - Access Token Manipulation and sub-techniques.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Access Token Manipulation - Token Impersonation or Potato Attack"
+references = [
+  "https://attack.mitre.org/techniques/T1134/",
+  "https://attack.mitre.org/techniques/T1134/001/",
+  "https://attack.mitre.org/techniques/T1134/002/",
+  "https://github.com/BeichenDream/GodPotato",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0005-4002-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Privilege Escalation",
+  "Tactic: Defense Evasion",
+  "Data Source: Elastic Defend",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+process where host.os.type == "windows" and event.type == "start" and
+  (
+    /* Potato exploits spawning SYSTEM shell */
+    (
+      process.name : ("cmd.exe", "powershell.exe", "pwsh.exe") and
+      process.user.name : ("SYSTEM", "NT AUTHORITY\\SYSTEM") and
+      process.parent.name : (
+        "spoolsv.exe", "IIS*", "w3wp.exe", "sqlservr.exe",
+        "java.exe", "tomcat*", "python*", "node.exe"
+      )
+    ) or
+    /* Known Potato tools */
+    (
+      process.pe.original_file_name : (
+        "JuicyPotato*", "RoguePotato*", "SweetPotato*",
+        "GodPotato*", "PrintSpoofer*", "SharpEfsPotato*"
+      )
+    ) or
+    /* Suspicious SeImpersonatePrivilege in network service / IIS context */
+    (
+      process.name : ("cmd.exe", "powershell.exe") and
+      process.user.name : ("IIS APPPOOL\\*", "NETWORK SERVICE") and
+      not process.parent.name : ("w3wp.exe", "iisreset.exe")
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Token Impersonation / Potato Attacks
+
+#### Possible Investigation Steps
+- Identify the Potato tool executable used (JuicyPotato, RoguePotato, GodPotato, etc.).
+- Review which service account was targeted for token theft.
+- Assess subsequent SYSTEM-level activity (new admin user, lateral movement).
+- Check for SeImpersonatePrivilege on the service account.
+
+### False Positive Analysis
+- Legitimate SYSTEM processes spawning cmd.exe (Windows Update, system tasks).
+- IT admin tools running in SYSTEM context.
+
+### Response and Remediation
+- Kill the SYSTEM shell and isolate the endpoint.
+- Remove the Potato exploit binary.
+- Patch the underlying privilege vulnerability (COM/RPC server, Print Spooler).
+- Review and restrict service account privileges.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1134"
+name = "Access Token Manipulation"
+reference = "https://attack.mitre.org/techniques/T1134/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1134.001"
+name = "Token Impersonation/Theft"
+reference = "https://attack.mitre.org/techniques/T1134/001/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1134.002"
+name = "Create Process with Token"
+reference = "https://attack.mitre.org/techniques/T1134/002/"
+
+[rule.threat.tactic]
+id = "TA0004"
+name = "Privilege Escalation"
+reference = "https://attack.mitre.org/tactics/TA0004/"

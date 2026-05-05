@@ -1,0 +1,128 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects post-compromise discovery activity where adversaries enumerate the local system,
+network environment, and Active Directory to understand the target environment and plan
+further actions. Identifies rapid execution of multiple discovery commands in sequence.
+Covers T1016, T1018, T1033, T1069, T1082, T1087, T1482.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Post-Compromise Discovery - Rapid System and Network Enumeration"
+references = [
+  "https://attack.mitre.org/techniques/T1082/",
+  "https://attack.mitre.org/techniques/T1016/",
+  "https://attack.mitre.org/techniques/T1087/",
+  "https://attack.mitre.org/techniques/T1069/",
+  "https://attack.mitre.org/techniques/T1482/",
+]
+risk_score = 47
+rule_id = "a1b2c3d4-0009-4001-8001-000000000001"
+severity = "medium"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Discovery",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+sequence by process.parent.entity_id with maxspan=3m
+  [process where host.os.type == "windows" and event.type == "start" and
+    process.name : ("whoami.exe", "hostname.exe", "ipconfig.exe", "ifconfig*")
+  ]
+  [process where host.os.type == "windows" and event.type == "start" and
+    process.name : (
+      "net.exe", "net1.exe", "nltest.exe", "nslookup.exe", "ping.exe",
+      "tracert.exe", "arp.exe", "netstat.exe", "route.exe",
+      "systeminfo.exe", "tasklist.exe", "quser.exe", "query.exe",
+      "wmic.exe", "dsquery.exe", "dsget.exe", "csvde.exe", "ldifde.exe",
+      "adfind.exe", "adexplorer.exe", "bloodhound*", "sharphound*"
+    )
+  ]
+  [process where host.os.type == "windows" and event.type == "start" and
+    process.name : (
+      "net.exe", "net1.exe", "nltest.exe", "nslookup.exe",
+      "systeminfo.exe", "tasklist.exe", "dsquery.exe",
+      "adfind.exe", "bloodhound*", "sharphound*",
+      "powershell.exe", "pwsh.exe"
+    )
+  ]
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Discovery Activity
+
+#### Possible Investigation Steps
+- Identify all discovery commands executed in the sequence.
+- Determine if the commands were run interactively or scripted.
+- Check whether BloodHound/SharpHound were used (AD attack path mapping).
+- Correlate discovery timing with initial access events.
+
+### False Positive Analysis
+- IT administrators running diagnostic scripts.
+- Software deployment tools running system inventory checks.
+
+### Response and Remediation
+- If unauthorized, treat as active intrusion — isolate the endpoint.
+- Review BloodHound data if collected and assess AD attack paths.
+- Harden AD by implementing tiering, Protected Users group, and disabling LDAP signing bypass.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1082"
+name = "System Information Discovery"
+reference = "https://attack.mitre.org/techniques/T1082/"
+
+[rule.threat.tactic]
+id = "TA0007"
+name = "Discovery"
+reference = "https://attack.mitre.org/tactics/TA0007/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1087"
+name = "Account Discovery"
+reference = "https://attack.mitre.org/techniques/T1087/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1087.002"
+name = "Domain Account"
+reference = "https://attack.mitre.org/techniques/T1087/002/"
+
+[rule.threat.tactic]
+id = "TA0007"
+name = "Discovery"
+reference = "https://attack.mitre.org/tactics/TA0007/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1482"
+name = "Domain Trust Discovery"
+reference = "https://attack.mitre.org/techniques/T1482/"
+
+[rule.threat.tactic]
+id = "TA0007"
+name = "Discovery"
+reference = "https://attack.mitre.org/tactics/TA0007/"

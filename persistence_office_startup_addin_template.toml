@@ -1,0 +1,118 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects persistence via Office application startup locations including malicious add-ins
+(XLL, XLAM, COM add-ins), Outlook VBA projects, Word/Excel templates (NORMAL.dotm,
+PERSONAL.xlsb), and suspicious modifications to Office startup registry keys.
+Covers T1137 - Office Application Startup and all sub-techniques.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Persistence via Office Application Startup - Malicious Add-In or Template"
+references = [
+  "https://attack.mitre.org/techniques/T1137/",
+  "https://attack.mitre.org/techniques/T1137/001/",
+  "https://attack.mitre.org/techniques/T1137/006/",
+]
+risk_score = 65
+rule_id = "a1b2c3d4-0004-4006-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Persistence",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where host.os.type == "windows" and
+  (
+    /* Suspicious XLL/XLAM add-in dropped in startup/appdata */
+    (event.category == "file" and event.type == "creation" and
+      file.extension : ("xll", "xlam", "xla", "xlm") and
+      file.path : (
+        "?:\\Users\\*\\AppData\\Roaming\\Microsoft\\AddIns\\*",
+        "?:\\Users\\*\\AppData\\Roaming\\Microsoft\\Excel\\XLSTART\\*",
+        "?:\\Program Files*\\Microsoft Office\\root\\*\\XLSTART\\*"
+      )
+    ) or
+    /* Suspicious NORMAL.dotm / PERSONAL.xlsb modification by non-Office process */
+    (event.category == "file" and event.type in ("creation", "change") and
+      file.name : ("NORMAL.dotm", "NormalEmail.dotm", "PERSONAL.xlsb") and
+      not process.name : ("WINWORD.EXE", "EXCEL.EXE", "svchost.exe")
+    ) or
+    /* Outlook add-in registry keys */
+    (event.category == "registry" and event.type in ("creation", "change") and
+      registry.path : (
+        "HKCU\\Software\\Microsoft\\Office\\Outlook\\Addins\\*",
+        "HKLM\\Software\\Microsoft\\Office\\Outlook\\Addins\\*",
+        "HKCU\\Software\\Microsoft\\Office\\*\\Excel\\Options\\*",
+        "HKCU\\Software\\Microsoft\\Office\\*\\Word\\Options\\*STARTUP*"
+      )
+    ) or
+    /* COM add-in registration pointing to suspicious path */
+    (event.category == "registry" and event.type in ("creation", "change") and
+      registry.path : ("HKCU\\Software\\Classes\\CLSID\\*\\InProcServer32\\*") and
+      registry.data.strings : (
+        "*\\AppData\\*", "*\\Temp\\*", "*\\ProgramData\\*"
+      )
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Office Startup Persistence
+
+#### Possible Investigation Steps
+- Identify the add-in file or template path — check creation time, hash, and signature.
+- Open the file and review macro/VBA content for malicious logic.
+- Determine which process created or modified the Office startup artifact.
+- Check whether the add-in executes on every Office launch.
+
+### False Positive Analysis
+- Legitimate Office add-ins installed by business applications (Salesforce, SAP, etc.).
+- Personal macros in PERSONAL.xlsb for Excel automation.
+
+### Response and Remediation
+- Remove the malicious add-in or template file.
+- Clean the associated registry keys.
+- Disable untrusted add-ins via Group Policy.
+- Enable Office Protected View and Attack Surface Reduction rules.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1137"
+name = "Office Application Startup"
+reference = "https://attack.mitre.org/techniques/T1137/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1137.001"
+name = "Office Template Macros"
+reference = "https://attack.mitre.org/techniques/T1137/001/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1137.006"
+name = "Add-ins"
+reference = "https://attack.mitre.org/techniques/T1137/006/"
+
+[rule.threat.tactic]
+id = "TA0003"
+name = "Persistence"
+reference = "https://attack.mitre.org/tactics/TA0003/"

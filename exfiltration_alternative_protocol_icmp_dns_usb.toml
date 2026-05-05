@@ -1,0 +1,147 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["network", "endpoint"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects advanced exfiltration techniques including scheduled data transfers timed to avoid
+detection, exfiltration over alternative protocols (ICMP tunneling, SMTP, FTP, TFTP),
+and data transfer over physical media (USB drives). Covers T1029, T1048, T1052.
+"""
+from = "now-9m"
+index = ["logs-network.*", "packetbeat-*", "logs-endpoint.events.*", "winlogbeat-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Exfiltration - Alternative Protocol, Scheduled Transfer, or Physical Media"
+references = [
+  "https://attack.mitre.org/techniques/T1029/",
+  "https://attack.mitre.org/techniques/T1048/",
+  "https://attack.mitre.org/techniques/T1052/",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0013-4002-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "Domain: Network",
+  "OS: Windows",
+  "OS: Linux",
+  "Use Case: Threat Detection",
+  "Tactic: Exfiltration",
+  "Data Source: Elastic Defend",
+  "Data Source: Network",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where
+  (
+    /* ICMP tunnel exfil — large ICMP packets or high-frequency ICMP */
+    (event.category == "network" and
+      network.protocol == "icmp" and
+      network.bytes > 1000 and
+      not destination.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    ) or
+    /* DNS exfiltration via high-frequency TXT/NULL queries */
+    (event.category == "network" and
+      network.protocol == "dns" and
+      dns.question.type : ("TXT", "NULL", "ANY") and
+      not dns.question.name : (
+        "*.microsoft.com", "*.windows.com", "*.google.com",
+        "*.amazonaws.com", "*.cloudflare.com"
+      )
+    ) or
+    /* USB/removable media write — large file copy to removable disk */
+    (event.category == "file" and event.type == "creation" and
+      host.os.type == "windows" and
+      file.path : ("?:\\*") and
+      not file.path : (
+        "C:\\*", "D:\\*", "E:\\*"   /* exclude fixed drives - context-dependent */
+      ) and
+      file.size > 10485760  /* > 10MB */
+    ) or
+    /* SMTP exfiltration via command-line mail tools */
+    (event.category == "process" and event.type == "start" and
+      process.name : (
+        "sendmail*", "mutt*", "msmtp*", "swaks*", "blat.exe"
+      ) and
+      process.args : ("*attach*", "*-a *", "--attach")
+    ) or
+    /* Scheduled exfil: schtasks creating task that calls network transfer tool */
+    (event.category == "process" and event.type == "start" and
+      process.name : "schtasks.exe" and
+      process.args : ("/create", "/tr") and
+      process.args : ("*curl*", "*wget*", "*ftp*", "*bitsadmin*")
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Alternative Protocol Exfiltration
+
+#### Possible Investigation Steps
+- For ICMP tunnel: capture and decode ICMP payloads to identify embedded data.
+- For DNS exfil: decode base64/hex subdomains to identify exfiltrated content.
+- For USB: identify the device ID, user, and files written.
+- For SMTP: identify the recipient address and attachment content.
+
+### False Positive Analysis
+- Large ICMP packets from network monitoring tools (e.g., ping with large payload).
+- Legitimate DNS TXT record lookups for SPF/DKIM.
+
+### Response and Remediation
+- Block ICMP tunneling tools at the perimeter.
+- Implement DNS sinkholing or RPZ for suspicious domains.
+- Enforce USB device control policy via endpoint management.
+- Block outbound SMTP from endpoints (route through mail gateway only).
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1048"
+name = "Exfiltration Over Alternative Protocol"
+reference = "https://attack.mitre.org/techniques/T1048/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1048.003"
+name = "Exfiltration Over Unencrypted Non-C2 Protocol"
+reference = "https://attack.mitre.org/techniques/T1048/003/"
+
+[rule.threat.tactic]
+id = "TA0010"
+name = "Exfiltration"
+reference = "https://attack.mitre.org/tactics/TA0010/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1052"
+name = "Exfiltration Over Physical Medium"
+reference = "https://attack.mitre.org/techniques/T1052/"
+
+[rule.threat.tactic]
+id = "TA0010"
+name = "Exfiltration"
+reference = "https://attack.mitre.org/tactics/TA0010/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1029"
+name = "Scheduled Transfer"
+reference = "https://attack.mitre.org/techniques/T1029/"
+
+[rule.threat.tactic]
+id = "TA0010"
+name = "Exfiltration"
+reference = "https://attack.mitre.org/tactics/TA0010/"

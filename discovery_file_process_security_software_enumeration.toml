@@ -1,0 +1,137 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects discovery of sensitive files, directories, running processes, browser artifacts,
+and password policy configuration. Adversaries perform targeted file enumeration to
+locate credentials, keys, configs, and sensitive data after initial compromise.
+Covers T1083, T1057, T1518, T1201.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Discovery - Sensitive File Enumeration, Process List, or Password Policy Query"
+references = [
+  "https://attack.mitre.org/techniques/T1083/",
+  "https://attack.mitre.org/techniques/T1057/",
+  "https://attack.mitre.org/techniques/T1201/",
+  "https://attack.mitre.org/techniques/T1518/",
+]
+risk_score = 47
+rule_id = "a1b2c3d4-0009-4003-8001-000000000001"
+severity = "medium"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Discovery",
+  "Data Source: Elastic Defend",
+  "Data Source: Sysmon",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+process where host.os.type == "windows" and event.type == "start" and
+  (
+    /* Password policy discovery */
+    (process.name : ("net.exe", "net1.exe") and
+      process.args : ("accounts", "/domain")
+    ) or
+    /* Sensitive file discovery via dir or Get-ChildItem */
+    (process.name : ("cmd.exe", "powershell.exe", "pwsh.exe") and
+      process.args : (
+        "*\\.ssh\\*", "*id_rsa*", "*id_ed25519*",
+        "*.pem*", "*.pfx*", "*.p12*", "*.kdbx*",
+        "*password*", "*secret*", "*credential*", "*config*",
+        "*web.config*", "*.env*", "*appsettings*"
+      ) and process.args : ("dir ", "ls ", "Get-ChildItem", "gci ", "find ")
+    ) or
+    /* Process enumeration */
+    (process.name : ("tasklist.exe", "qprocess.exe") and
+      not process.parent.name : ("services.exe", "svchost.exe")
+    ) or
+    /* Security software discovery */
+    (process.name : ("powershell.exe", "pwsh.exe", "wmic.exe") and
+      process.args : (
+        "*AntiVirus*", "*Antivirus*", "*SecurityCenter*",
+        "*MsMpEng*", "*CrowdStrike*", "*SentinelOne*",
+        "*Cylance*", "*Sophos*", "*McAfee*", "*Symantec*"
+      )
+    ) or
+    /* Browser saved data enumeration */
+    (process.name : ("powershell.exe", "pwsh.exe", "cmd.exe") and
+      process.args : (
+        "*Login Data*", "*cookies*", "*History*",
+        "*Chrome\\User Data*", "*Edge\\User Data*",
+        "*Firefox\\Profiles*"
+      )
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Targeted Discovery
+
+#### Possible Investigation Steps
+- Identify what specific files or process data were accessed.
+- Check the user context — is this account expected to run discovery commands?
+- Correlate with other post-exploitation activity (persistence, lateral movement).
+- Review file access events in the same time window.
+
+### False Positive Analysis
+- IT administrators running inventory scripts.
+- Developers searching for configuration files in their own workspaces.
+
+### Response and Remediation
+- Determine if any sensitive files were exfiltrated after discovery.
+- Rotate any discovered credentials or keys.
+- Restrict access to sensitive file locations via NTFS permissions and encryption.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1083"
+name = "File and Directory Discovery"
+reference = "https://attack.mitre.org/techniques/T1083/"
+
+[rule.threat.tactic]
+id = "TA0007"
+name = "Discovery"
+reference = "https://attack.mitre.org/tactics/TA0007/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1057"
+name = "Process Discovery"
+reference = "https://attack.mitre.org/techniques/T1057/"
+
+[rule.threat.tactic]
+id = "TA0007"
+name = "Discovery"
+reference = "https://attack.mitre.org/tactics/TA0007/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1201"
+name = "Password Policy Discovery"
+reference = "https://attack.mitre.org/techniques/T1201/"
+
+[rule.threat.tactic]
+id = "TA0007"
+name = "Discovery"
+reference = "https://attack.mitre.org/tactics/TA0007/"

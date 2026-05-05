@@ -1,0 +1,117 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["windows", "system"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects brute-force or credential stuffing attacks against external remote services such as
+RDP, VPN, SSH, Citrix, or Outlook Web Access. Multiple failed authentication events followed
+by a successful login from the same source indicates account compromise via valid credentials.
+Covers T1078 - Valid Accounts and T1133 - External Remote Services.
+"""
+from = "now-15m"
+index = ["winlogbeat-*", "logs-system.auth-*", "logs-windows.forwarded*"]
+language = "eql"
+license = "Elastic License v2"
+name = "External Remote Service Brute Force Followed by Successful Login"
+references = [
+  "https://attack.mitre.org/techniques/T1078/",
+  "https://attack.mitre.org/techniques/T1133/",
+  "https://attack.mitre.org/techniques/T1110/",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0002-4002-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Initial Access",
+  "Tactic: Credential Access",
+  "Data Source: Windows Security Event Logs",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+sequence by winlog.event_data.IpAddress with maxspan=10m
+  [authentication where host.os.type == "windows" and
+    event.code == "4625" and
+    winlog.event_data.LogonType in ("3", "10") and
+    not winlog.event_data.IpAddress : ("127.0.0.1", "::1", "-")
+  ] with runs=5
+  [authentication where host.os.type == "windows" and
+    event.code == "4624" and
+    winlog.event_data.LogonType in ("3", "10") and
+    not winlog.event_data.IpAddress : ("127.0.0.1", "::1", "-")
+  ]
+'''
+
+note = """## Triage and Analysis
+
+### Investigating External Remote Service Brute Force
+
+#### Possible Investigation Steps
+- Identify the source IP — check if it is a known scanner or malicious IP.
+- Determine which account was successfully logged in.
+- Review subsequent activity of the logged-in account for lateral movement.
+- Check for MFA bypass or MFA fatigue if MFA is in use.
+
+### False Positive Analysis
+- Legitimate users mistyping passwords before a successful login.
+- Password manager resets causing multiple failures.
+
+### Response and Remediation
+- Immediately disable or reset the compromised account.
+- Block the attacking source IP at the perimeter firewall.
+- Enable MFA on all external-facing services.
+- Review all activity performed by the account after the successful login.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1078"
+name = "Valid Accounts"
+reference = "https://attack.mitre.org/techniques/T1078/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1078.003"
+name = "Local Accounts"
+reference = "https://attack.mitre.org/techniques/T1078/003/"
+
+[rule.threat.tactic]
+id = "TA0001"
+name = "Initial Access"
+reference = "https://attack.mitre.org/tactics/TA0001/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1133"
+name = "External Remote Services"
+reference = "https://attack.mitre.org/techniques/T1133/"
+
+[rule.threat.tactic]
+id = "TA0001"
+name = "Initial Access"
+reference = "https://attack.mitre.org/tactics/TA0001/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1110"
+name = "Brute Force"
+reference = "https://attack.mitre.org/techniques/T1110/"
+
+[rule.threat.tactic]
+id = "TA0006"
+name = "Credential Access"
+reference = "https://attack.mitre.org/tactics/TA0006/"

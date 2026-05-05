@@ -1,0 +1,90 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["network", "endpoint"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects DNS queries or connections to newly registered or typosquatted domains that
+adversaries may use as infrastructure for C2, phishing, or payload staging.
+Covers T1583 - Acquire Infrastructure and T1584 - Compromise Infrastructure.
+"""
+from = "now-9m"
+index = ["logs-network.*", "packetbeat-*", "logs-endpoint.events.*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Resource Development - Connection to Newly Registered or Suspicious Infrastructure Domain"
+references = [
+  "https://attack.mitre.org/techniques/T1583/",
+  "https://attack.mitre.org/techniques/T1584/",
+  "https://attack.mitre.org/techniques/T1608/",
+]
+risk_score = 47
+rule_id = "a1b2c3d4-0001-4002-8001-000000000001"
+severity = "medium"
+tags = [
+  "Domain: Network",
+  "Use Case: Threat Detection",
+  "Tactic: Resource Development",
+  "Data Source: Network",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+network where event.type == "connection" and
+  dns.question.name : (
+    "*.xyz", "*.top", "*.click", "*.gq", "*.ml", "*.cf", "*.tk",
+    "*.pw", "*.su", "*.cc", "*.ws", "*.biz"
+  ) and
+  not dns.question.name : (
+    "*.microsoft.com", "*.google.com", "*.amazon.com",
+    "*.cloudflare.com", "*.akamai.com"
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Suspicious Infrastructure Domains
+
+#### Possible Investigation Steps
+- Identify the process making the DNS query and review its parent chain.
+- Check domain registration date (WHOIS) — newly registered domains are higher risk.
+- Review whether the domain is flagged in threat intelligence feeds.
+- Look for subsequent data transfers or C2 beaconing patterns to the domain.
+
+### False Positive Analysis
+- Legitimate SaaS tools may use uncommon TLDs (.xyz, .io, .co).
+- Developer tools accessing public APIs on uncommon domains.
+
+### Response and Remediation
+- Block the domain at the DNS/proxy layer.
+- Investigate the source process for payload delivery or C2 activity.
+- Add domain to threat intelligence blocklists.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1583"
+name = "Acquire Infrastructure"
+reference = "https://attack.mitre.org/techniques/T1583/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1583.001"
+name = "Domains"
+reference = "https://attack.mitre.org/techniques/T1583/001/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1583.003"
+name = "Virtual Private Server"
+reference = "https://attack.mitre.org/techniques/T1583/003/"
+
+[rule.threat.tactic]
+id = "TA0042"
+name = "Resource Development"
+reference = "https://attack.mitre.org/tactics/TA0042/"

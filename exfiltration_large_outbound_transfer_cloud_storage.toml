@@ -1,0 +1,123 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["network", "endpoint"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects data exfiltration over network channels including large outbound data transfers to
+cloud storage services, data exfiltration via curl/wget to attacker infrastructure,
+exfiltration of archives to file-sharing sites, and transfer limits bypasses.
+Covers T1041, T1048, T1567.
+"""
+from = "now-9m"
+index = ["logs-network.*", "packetbeat-*", "logs-endpoint.events.*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Data Exfiltration - Large Outbound Transfer or Upload to Cloud Storage"
+references = [
+  "https://attack.mitre.org/techniques/T1041/",
+  "https://attack.mitre.org/techniques/T1048/",
+  "https://attack.mitre.org/techniques/T1567/",
+]
+risk_score = 73
+rule_id = "a1b2c3d4-0013-4001-8001-000000000001"
+severity = "high"
+tags = [
+  "Domain: Endpoint",
+  "Domain: Network",
+  "OS: Windows",
+  "OS: Linux",
+  "Use Case: Threat Detection",
+  "Tactic: Exfiltration",
+  "Data Source: Network",
+  "Data Source: Elastic Defend",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+network where event.type == "connection" and
+  (
+    /* Large outbound upload to file-sharing or cloud storage */
+    (
+      network.bytes_sent > 50000000 and  /* 50MB+ */
+      destination.domain : (
+        "*.mega.nz", "*.dropbox.com", "*.box.com", "*.wetransfer.com",
+        "*.sendspace.com", "*.mediafire.com", "*.4shared.com",
+        "transfer.sh", "anonfiles.com", "file.io",
+        "*.onedrive.com", "*.sharepoint.com", "*.drive.google.com"
+      ) and
+      not process.name : (
+        "OneDrive.exe", "Dropbox.exe", "googledrivesync.exe",
+        "backup*", "sync*"
+      )
+    ) or
+    /* Suspicious exfil via curl/wget to non-trusted destination */
+    (
+      process.name : ("curl.exe", "curl", "wget", "wget.exe") and
+      process.args : ("-T", "--upload-file", "-d @*", "--data-binary @*") and
+      not destination.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    ) or
+    /* DNS exfiltration: many unique subdomains to same domain */
+    (
+      network.protocol == "dns" and
+      dns.question.name : "*.*.*.*.*.*.*.*.exfil*"
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Data Exfiltration
+
+#### Possible Investigation Steps
+- Identify the volume, destination, and content of the exfiltration.
+- Determine which data was exfiltrated (review source file paths accessed before transfer).
+- Check whether the destination is a known attacker-controlled service.
+- Review DLP logs and proxy logs for additional exfiltration channels.
+
+### False Positive Analysis
+- Legitimate cloud backup tools (OneDrive, Dropbox, Google Drive sync).
+- Large file transfers for business purposes.
+
+### Response and Remediation
+- Block the exfiltration destination at the proxy/firewall.
+- Identify and classify all data that may have been exfiltrated.
+- Notify privacy/legal teams if PII or sensitive data was involved.
+- Engage incident response for breach notification assessment.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1041"
+name = "Exfiltration Over C2 Channel"
+reference = "https://attack.mitre.org/techniques/T1041/"
+
+[rule.threat.tactic]
+id = "TA0010"
+name = "Exfiltration"
+reference = "https://attack.mitre.org/tactics/TA0010/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1567"
+name = "Exfiltration Over Web Service"
+reference = "https://attack.mitre.org/techniques/T1567/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1567.002"
+name = "Exfiltration to Cloud Storage"
+reference = "https://attack.mitre.org/techniques/T1567/002/"
+
+[rule.threat.tactic]
+id = "TA0010"
+name = "Exfiltration"
+reference = "https://attack.mitre.org/tactics/TA0010/"

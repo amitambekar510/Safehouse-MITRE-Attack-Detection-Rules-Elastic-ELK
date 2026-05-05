@@ -1,0 +1,127 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "linux", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects resource hijacking (cryptomining), disk wiping utilities, and denial of service
+attack tools. Adversaries may use compromised systems for cryptomining, destroy disk contents,
+or launch DoS attacks. Covers T1496 - Resource Hijacking, T1561 - Disk Wipe,
+and T1498 - Network Denial of Service.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-system.syslog-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Impact - Cryptomining, Disk Wipe, or DoS Tool Execution"
+references = [
+  "https://attack.mitre.org/techniques/T1496/",
+  "https://attack.mitre.org/techniques/T1561/",
+  "https://attack.mitre.org/techniques/T1498/",
+]
+risk_score = 87
+rule_id = "a1b2c3d4-0014-4002-8001-000000000001"
+severity = "critical"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "OS: Linux",
+  "Use Case: Threat Detection",
+  "Tactic: Impact",
+  "Data Source: Elastic Defend",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where
+  (
+    /* Cryptominer process names or pool connection strings */
+    (event.category == "process" and event.type == "start" and
+      (
+        process.name : (
+          "xmrig*", "xmr-stak*", "minerd*", "cpuminer*",
+          "ethminer*", "nbminer*", "t-rex.exe", "gminer.exe",
+          "PhoenixMiner*", "lolminer*"
+        ) or
+        process.args : (
+          "*stratum+tcp*", "*stratum+ssl*", "*mining.pool*",
+          "*pool.minexmr*", "*xmrpool*", "*moneroocean*"
+        )
+      )
+    ) or
+    /* Disk wipe utilities */
+    (event.category == "process" and event.type == "start" and
+      (
+        process.name : ("sdelete.exe", "sdelete64.exe", "eraser.exe", "cipher.exe") and
+        process.args : ("-p", "/w:", "-wipe") or
+        /* Linux disk wipe via dd or shred */
+        (host.os.type == "linux" and
+          process.name : ("dd", "shred", "wipe") and
+          process.args : ("/dev/sd*", "/dev/nvme*", "if=/dev/zero", "if=/dev/random")
+        ) or
+        /* Windows format/diskpart destructive operations */
+        (process.name : "diskpart.exe" and
+          process.args : ("clean all", "override")
+        )
+      )
+    ) or
+    /* DoS tool signatures */
+    (event.category == "process" and event.type == "start" and
+      process.name : (
+        "hping*", "hping3*", "slowloris*", "loic*",
+        "hoic*", "mdk*", "zmap*"
+      )
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Cryptomining / Disk Wipe / DoS
+
+#### Possible Investigation Steps
+- For cryptomining: identify the miner binary, pool address, and mining wallet.
+- For disk wipe: assess scope — which disks were targeted and what was destroyed.
+- For DoS tools: identify the target and assess if systems/services were taken offline.
+- Determine how the attacker gained access to deploy these tools.
+
+### False Positive Analysis
+- Security research VMs running cryptominer samples in sandboxes.
+- Certified disk wiping tools used by IT for decommissioning.
+
+### Response and Remediation
+- For cryptomining: kill the miner process, remove the binary, patch the initial access vector.
+- For disk wipe: engage disaster recovery; assess data loss scope.
+- For DoS: mitigate at network level; contact upstream ISP if necessary.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1496"
+name = "Resource Hijacking"
+reference = "https://attack.mitre.org/techniques/T1496/"
+
+[rule.threat.tactic]
+id = "TA0040"
+name = "Impact"
+reference = "https://attack.mitre.org/tactics/TA0040/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1561"
+name = "Disk Wipe"
+reference = "https://attack.mitre.org/techniques/T1561/"
+
+[rule.threat.tactic]
+id = "TA0040"
+name = "Impact"
+reference = "https://attack.mitre.org/tactics/TA0040/"

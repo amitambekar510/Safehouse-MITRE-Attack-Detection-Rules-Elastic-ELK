@@ -1,0 +1,120 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects lateral movement via Pass-the-Hash (PtH), PsExec, WMI remote execution,
+and SMB-based service deployment. Adversaries use stolen NTLM hashes or Kerberos tickets
+to authenticate to remote systems and execute code or deploy services.
+Covers T1021.002 - SMB/Windows Admin Shares and T1550.002 - Pass the Hash.
+"""
+from = "now-9m"
+index = ["winlogbeat-*", "logs-windows.forwarded*", "logs-endpoint.events.*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Lateral Movement via Pass-the-Hash, PsExec, or SMB Admin Share"
+references = [
+  "https://attack.mitre.org/techniques/T1021/002/",
+  "https://attack.mitre.org/techniques/T1550/002/",
+  "https://attack.mitre.org/techniques/T1569/002/",
+]
+risk_score = 87
+rule_id = "a1b2c3d4-0010-4001-8001-000000000001"
+severity = "critical"
+tags = [
+  "Domain: Endpoint",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Lateral Movement",
+  "Data Source: Elastic Defend",
+  "Data Source: Windows Security Event Logs",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where host.os.type == "windows" and
+  (
+    /* Pass-the-Hash: Type 3 logon with NTLM from non-standard source */
+    (event.code == "4624" and
+      winlog.event_data.LogonType == "3" and
+      winlog.event_data.AuthenticationPackageName : "NTLM" and
+      not winlog.event_data.IpAddress : ("127.0.0.1", "::1", "-") and
+      winlog.event_data.LogonProcessName : "NtLmSsp" and
+      not winlog.event_data.WorkstationName : ("-")
+    ) or
+    /* PsExec - PSEXESVC service creation */
+    (event.code == "7045" and
+      winlog.event_data.ServiceName : ("PSEXESVC", "PSEXEC*") and
+      winlog.event_data.ServiceFileName : "*\\PSEXESVC.exe"
+    ) or
+    /* Remote service/file execution via admin shares */
+    (event.category == "process" and event.type == "start" and
+      process.parent.name : "services.exe" and
+      process.name : ("cmd.exe", "powershell.exe", "pwsh.exe") and
+      not process.code_signature.trusted == true
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Lateral Movement via PTH / PsExec
+
+#### Possible Investigation Steps
+- For PtH: identify source host and user account. Check if NTLM was used to avoid Kerberos (PtH indicator).
+- For PsExec: identify who deployed it, from where, and what was executed.
+- Check all remote hosts accessed from the compromised source.
+- Review all commands run via the remote service.
+
+### False Positive Analysis
+- Legitimate admin tools (Sysinternals PsExec) used by IT administrators.
+- SCCM/Intune pushing software via SMB.
+
+### Response and Remediation
+- Disable NTLM authentication where possible. Enforce Kerberos.
+- Enable SMB signing to prevent relay attacks.
+- Isolate source and destination hosts.
+- Force password and ticket rotation for affected accounts.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1021"
+name = "Remote Services"
+reference = "https://attack.mitre.org/techniques/T1021/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1021.002"
+name = "SMB/Windows Admin Shares"
+reference = "https://attack.mitre.org/techniques/T1021/002/"
+
+[rule.threat.tactic]
+id = "TA0008"
+name = "Lateral Movement"
+reference = "https://attack.mitre.org/tactics/TA0008/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1550"
+name = "Use Alternate Authentication Material"
+reference = "https://attack.mitre.org/techniques/T1550/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1550.002"
+name = "Pass the Hash"
+reference = "https://attack.mitre.org/techniques/T1550/002/"
+
+[rule.threat.tactic]
+id = "TA0008"
+name = "Lateral Movement"
+reference = "https://attack.mitre.org/tactics/TA0008/"

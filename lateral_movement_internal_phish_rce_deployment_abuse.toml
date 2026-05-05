@@ -1,0 +1,136 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["endpoint", "windows", "email"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects lateral movement via internal spearphishing (compromised mailbox sending
+malicious emails internally), exploitation of remote services (EternalBlue, ZeroLogon,
+Exchange ProxyShell/ProxyLogon), and abuse of software deployment tools like
+SCCM, PDQ Deploy, and Ansible to push malicious payloads to endpoints.
+Covers T1534, T1210, T1072.
+"""
+from = "now-9m"
+index = ["logs-endpoint.events.*", "winlogbeat-*", "logs-o365.*", "logs-windows.sysmon_operational-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Lateral Movement - Internal Phishing, Remote Service Exploit, or Deployment Tool Abuse"
+references = [
+  "https://attack.mitre.org/techniques/T1534/",
+  "https://attack.mitre.org/techniques/T1210/",
+  "https://attack.mitre.org/techniques/T1072/",
+]
+risk_score = 87
+rule_id = "a1b2c3d4-0010-4003-8001-000000000001"
+severity = "critical"
+tags = [
+  "Domain: Endpoint",
+  "Domain: Cloud",
+  "OS: Windows",
+  "Use Case: Threat Detection",
+  "Tactic: Lateral Movement",
+  "Data Source: Elastic Defend",
+  "Data Source: Windows Security Event Logs",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+any where
+  (
+    /* EternalBlue / MS17-010 SMB exploitation indicator: named pipe impacket */
+    (event.category == "network" and host.os.type == "windows" and
+      network.protocol == "smb" and
+      destination.port == 445 and
+      process.name : ("lsass.exe", "spoolsv.exe") and
+      not source.ip : ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    ) or
+    /* SCCM/PDQ/Ansible abuse: unexpected deployment pushing scripts */
+    (event.category == "process" and event.type == "start" and
+      process.parent.name : (
+        "CcmExec.exe", "smsexec.exe", "PDQDeployRunner*",
+        "ansible*", "puppet*", "chef*", "salt*"
+      ) and
+      process.name : ("cmd.exe", "powershell.exe", "pwsh.exe") and
+      process.args : (
+        "*http*", "*\\\\*", "*AppData*", "*Temp*", "*encoded*"
+      )
+    ) or
+    /* ZeroLogon: machine account password reset from non-DC */
+    (event.code == "4742" and
+      winlog.event_data.PasswordLastSet : "*" and
+      winlog.event_data.SubjectUserName : "*" and
+      not winlog.event_data.SubjectUserName : ("*$") and
+      winlog.event_data.TargetUserName : "*$"
+    ) or
+    /* ProxyShell/ProxyLogon: Exchange spawning child process */
+    (event.category == "process" and event.type == "start" and
+      process.parent.name : ("UMWorkerProcess.exe", "MSExchangeMailboxAssistants.exe") and
+      process.name : ("cmd.exe", "powershell.exe", "wscript.exe")
+    )
+  )
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Lateral Movement via Exploits / Deployment
+
+#### Possible Investigation Steps
+- For SMB exploit: check for IPC$ / admin share connections from external IPs.
+- For SCCM/PDQ abuse: identify who pushed the malicious task and from which console.
+- For ZeroLogon: verify Event 4742 – machine account password reset from a non-DC host.
+- For ProxyShell: check web access logs for the exploit HTTP requests.
+
+### False Positive Analysis
+- Legitimate SCCM deployments pushing software updates.
+- Authorized Exchange maintenance tasks.
+
+### Response and Remediation
+- Patch all unpatched SMB/Exchange vulnerabilities immediately.
+- Restrict SCCM admin rights to dedicated admin workstations.
+- Enable SMB signing and block SMBv1.
+- Isolate affected systems and audit all SCCM deployment history.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1534"
+name = "Internal Spearphishing"
+reference = "https://attack.mitre.org/techniques/T1534/"
+
+[rule.threat.tactic]
+id = "TA0008"
+name = "Lateral Movement"
+reference = "https://attack.mitre.org/tactics/TA0008/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1210"
+name = "Exploitation of Remote Services"
+reference = "https://attack.mitre.org/techniques/T1210/"
+
+[rule.threat.tactic]
+id = "TA0008"
+name = "Lateral Movement"
+reference = "https://attack.mitre.org/tactics/TA0008/"
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1072"
+name = "Software Deployment Tools"
+reference = "https://attack.mitre.org/techniques/T1072/"
+
+[rule.threat.tactic]
+id = "TA0008"
+name = "Lateral Movement"
+reference = "https://attack.mitre.org/tactics/TA0008/"

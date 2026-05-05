@@ -1,0 +1,91 @@
+[metadata]
+creation_date = "2025/01/01"
+integration = ["network", "endpoint"]
+maturity = "production"
+updated_date = "2026/05/04"
+
+[rule]
+author = ["Amit Ambekar / Safehouse"]
+description = """
+Detects active network scanning activity such as port sweeps, SYN scans, and host discovery probes
+originating from internal hosts. Adversaries use active scanning to gather information about target
+infrastructure prior to exploitation. Covers MITRE ATT&CK T1595 - Active Scanning.
+"""
+from = "now-9m"
+index = ["logs-network.*", "packetbeat-*", "filebeat-*"]
+language = "eql"
+license = "Elastic License v2"
+name = "Active Network Scanning / Port Sweep Detected"
+references = [
+  "https://attack.mitre.org/techniques/T1595/",
+  "https://attack.mitre.org/techniques/T1595/001/",
+  "https://attack.mitre.org/techniques/T1595/002/",
+]
+risk_score = 47
+rule_id = "a1b2c3d4-0001-4001-8001-000000000001"
+severity = "medium"
+tags = [
+  "Domain: Network",
+  "OS: Windows",
+  "OS: Linux",
+  "Use Case: Threat Detection",
+  "Tactic: Reconnaissance",
+  "Data Source: Network",
+  "Resources: Investigation Guide",
+]
+timestamp_override = "event.ingested"
+type = "eql"
+
+query = '''
+network where event.action in ("network_flow", "connection_attempted") and
+  destination.port > 0 and
+  not source.ip : ("127.0.0.1", "::1") and
+  not destination.ip : ("127.0.0.1", "::1", "169.254.0.0/16", "224.0.0.0/4")
+| tail 1000
+| stats count = count() by source.ip, destination.ip
+| where count > 50
+'''
+
+note = """## Triage and Analysis
+
+### Investigating Active Network Scanning
+
+#### Possible Investigation Steps
+- Identify the source host and user account triggering the scan.
+- Review `source.ip`, `destination.ip`, `destination.port` distribution.
+- Check whether this is a scheduled vulnerability scan from an authorized scanner.
+- Look for follow-on exploitation attempts from the same source IP.
+
+### False Positive Analysis
+- Authorized vulnerability scanners (Nessus, Qualys, OpenVAS) may trigger this rule.
+- Network monitoring tools performing health checks.
+- Add scanner IPs to an exception list after validation.
+
+### Response and Remediation
+- If unauthorized, isolate the source host immediately.
+- Review firewall logs for data exfiltration attempts.
+- Rotate credentials on scanned hosts if sensitive services were probed.
+"""
+
+[[rule.threat]]
+framework = "MITRE ATT&CK"
+
+[[rule.threat.technique]]
+id = "T1595"
+name = "Active Scanning"
+reference = "https://attack.mitre.org/techniques/T1595/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1595.001"
+name = "Scanning IP Blocks"
+reference = "https://attack.mitre.org/techniques/T1595/001/"
+
+[[rule.threat.technique.subtechnique]]
+id = "T1595.002"
+name = "Vulnerability Scanning"
+reference = "https://attack.mitre.org/techniques/T1595/002/"
+
+[rule.threat.tactic]
+id = "TA0043"
+name = "Reconnaissance"
+reference = "https://attack.mitre.org/tactics/TA0043/"
